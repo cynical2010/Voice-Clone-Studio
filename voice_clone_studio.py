@@ -2687,6 +2687,9 @@ def normalize_audio(audio_file):
     if audio_file is None:
         return None
 
+    if not os.path.exists(audio_file):
+        return None
+
     try:
         data, sr = sf.read(audio_file)
 
@@ -2724,12 +2727,15 @@ def normalize_audio(audio_file):
 
     except Exception as e:
         print(f"Error normalizing audio: {e}")
-        return None
+        return audio_file
 
 
 def convert_to_mono(audio_file):
     """Convert stereo audio to mono."""
     if audio_file is None:
+        return None
+
+    if not os.path.exists(audio_file):
         return None
 
     try:
@@ -2756,7 +2762,8 @@ def convert_to_mono(audio_file):
             return audio_file
 
     except Exception as e:
-        return None
+        print(f"Error converting to mono: {e}")
+        return audio_file
 
 
 def clean_audio(audio_file, progress=gr.Progress()):
