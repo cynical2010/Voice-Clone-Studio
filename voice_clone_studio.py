@@ -3126,7 +3126,7 @@ def get_trained_models():
 
 
 def get_trained_model_names():
-    """Get list of existing trained model names (folder names only, not checkpoints)."""
+    """Get list of existing trained model folder names."""
     project_root = Path(__file__).parent
     trained_models_folder = _user_config.get("trained_models_folder", "models")
     models_dir = project_root / trained_models_folder
@@ -3134,10 +3134,8 @@ def get_trained_model_names():
     if not models_dir.exists():
         return []
 
-    model_names = []
-    for folder in models_dir.iterdir():
-        if folder.is_dir() and (folder / "model.safetensors").exists():
-            model_names.append(folder.name)
+    # Get all folder names in the trained models directory
+    model_names = [folder.name for folder in models_dir.iterdir() if folder.is_dir()]
 
     return model_names
 
@@ -6264,23 +6262,32 @@ def create_ui():
                     outputs=[ref_audio_preview]
                 )
 
-                # Create a hidden textbox to store existing models list
-                existing_models_state = gr.State([])
+                # Hidden JSON for existing models list (JS-accessible)
+                existing_models_json = gr.JSON(value=[], visible=False)
 
                 # Function to show modal with current model list
                 def show_training_modal():
                     """Fetch current model list and prepare modal."""
                     existing_models = get_trained_model_names()
+                    print(f"[DEBUG] show_training_modal returning: {existing_models}")
                     return existing_models
 
                 start_training_btn.click(
                     fn=show_training_modal,
                     inputs=None,
-                    outputs=[existing_models_state],
+                    outputs=[existing_models_json]
+                ).then(
+                    fn=None,
+                    inputs=[existing_models_json],
+                    outputs=None,
                     js="""
                     (existingModels) => {
+                        console.log('[DEBUG] Received existingModels:', existingModels);
+                        console.log('[DEBUG] Type:', typeof existingModels);
+                        console.log('[DEBUG] Is array?', Array.isArray(existingModels));
+
                         const overlay = document.getElementById('input-modal-overlay');
-                        if (!overlay) return existingModels;
+                        if (!overlay) return;
 
                         const titleEl = document.getElementById('input-modal-title');
                         const messageEl = document.getElementById('input-modal-message');
@@ -6293,6 +6300,8 @@ def create_ui():
                         if (messageEl) {
                             messageEl.textContent = 'Enter a name for this trained voice model:';
                             messageEl.style.display = 'block';
+                            messageEl.classList.remove('error');
+                            delete messageEl.dataset.originalMessage; // Clear any stored error message
                         }
                         if (inputField) {
                             inputField.placeholder = 'e.g., MyVoice, Female-Narrator, John-Doe';
@@ -6312,12 +6321,30 @@ def create_ui():
 
                         // Set up validation with current model list
                         window.inputModalValidation = (value) => {
+                            console.log('[VALIDATION] Called with value:', value);
+                            console.log('[VALIDATION] existingModels:', existingModels);
+                            console.log('[VALIDATION] Is array?', Array.isArray(existingModels));
+
                             if (!value || value.trim().length === 0) {
                                 return 'Please enter a model name';
                             }
-                            if (existingModels.includes(value.trim())) {
-                                return 'Model "' + value + '" already exists. Please choose a different name.';
+
+                            const trimmedValue = value.trim();
+                            console.log('[VALIDATION] Trimmed value:', trimmedValue);
+                            console.log('[VALIDATION] Checking if includes...');
+
+                            if (existingModels && Array.isArray(existingModels)) {
+                                console.log('[VALIDATION] Array contents:', existingModels);
+                                const exists = existingModels.includes(trimmedValue);
+                                console.log('[VALIDATION] Exists?', exists);
+
+                                if (exists) {
+                                    return 'Model "' + trimmedValue + '" already exists!';
+                                }
+                            } else {
+                                console.log('[VALIDATION] existingModels is not an array or is null');
                             }
+
                             return null;
                         };
 
@@ -6330,8 +6357,6 @@ def create_ui():
                                 inputField.select();
                             }
                         }, 100);
-
-                        return existingModels;
                     }
                     """
                 )

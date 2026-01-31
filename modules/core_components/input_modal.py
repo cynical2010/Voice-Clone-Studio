@@ -121,40 +121,76 @@ INPUT_MODAL_CSS = """
   background: var(--button-primary-background-fill-hover);
   border-color: var(--button-primary-border-color-hover);
 }
+#input-modal-overlay .modal-message.error {
+  color: #ff4444;
+  font-weight: 700;
+  word-wrap: break-word;
+  animation: errorShake 0.4s ease-in-out;
+}
+@keyframes errorShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-8px); }
+  75% { transform: translateX(8px); }
+}
 """
 
 INPUT_MODAL_HEAD = """
 <script>
-  function submitInputModalValue(action, button) {
-    console.log('submitInputModalValue called with action:', action);
+  // Global validation function storage
+  window.inputModalValidation = null;
 
+  function submitInputModalValue(action, button) {
     const overlay = document.getElementById('input-modal-overlay');
     const inputField = document.getElementById('input-modal-field');
+    const errorEl = document.getElementById('input-modal-error');
     
-    if (!overlay || !inputField) {
-      console.error('Modal elements not found');
-      return;
-    }
+    if (!overlay || !inputField) return;
 
     let valueToSubmit = '';
     
     if (action === 'submit') {
       valueToSubmit = inputField.value.trim();
-      console.log('Submitting value:', valueToSubmit);
+      
+      // Run validation if provided
+      if (window.inputModalValidation) {
+        const error = window.inputModalValidation(valueToSubmit);
+        if (error) {
+          // Show error by replacing message text
+          const messageEl = document.getElementById('input-modal-message');
+          if (messageEl) {
+            // Store original message if not already stored
+            if (!messageEl.dataset.originalMessage) {
+              messageEl.dataset.originalMessage = messageEl.textContent;
+            }
+            // Replace message with error
+            messageEl.classList.remove('error');
+            void messageEl.offsetWidth; // Force reflow
+            messageEl.textContent = error;
+            messageEl.classList.add('error');
+          }
+          return; // Stop here, don't close modal or trigger
+        }
+      }
     } else {
-      console.log('Action cancelled');
       overlay.classList.remove('show');
       inputField.value = '';
+      if (errorEl) {
+        errorEl.classList.remove('show');
+      }
+      window.inputModalValidation = null;
       return; // Exit without triggering anything
     }
 
     overlay.classList.remove('show');
     inputField.value = '';
+    if (errorEl) {
+      errorEl.classList.remove('show');
+    }
+    window.inputModalValidation = null; // Clear validation
 
     // Get context from button's data attribute
     const context = button ? button.getAttribute('data-context') || '' : '';
     const prefixedValue = context + valueToSubmit;
-    console.log('Prefixed value:', prefixedValue);
 
     // Find the trigger element
     function findTrigger() {
@@ -187,27 +223,18 @@ INPUT_MODAL_HEAD = """
 
     if (trigger) {
       const newValue = prefixedValue + '_' + Date.now();
-      console.log('Setting trigger value to:', newValue);
       trigger.value = newValue;
 
       trigger.dispatchEvent(new Event('input', { bubbles: true }));
       trigger.dispatchEvent(new Event('change', { bubbles: true }));
       const evt = new InputEvent('input', { bubbles: true, cancelable: true });
       trigger.dispatchEvent(evt);
-
-      console.log('Events dispatched, trigger value is now:', trigger.value);
-    } else {
-      console.error('Could not find input-trigger element');
     }
   }
 
   window.addEventListener('DOMContentLoaded', () => {
-    console.log('DOMContentLoaded - setting up input modal listeners');
     const overlay = document.getElementById('input-modal-overlay');
-    if (!overlay) {
-      console.error('Input modal overlay not found!');
-      return;
-    }
+    if (!overlay) return;
     
     // Close on overlay click
     overlay.addEventListener('click', function(e) {
@@ -225,6 +252,17 @@ INPUT_MODAL_HEAD = """
           const submitBtn = document.getElementById('input-modal-submit-btn');
           if (submitBtn) {
             submitInputModalValue('submit', submitBtn);
+          }
+        }
+      });
+      
+      // Clear error on input
+      inputField.addEventListener('input', function() {
+        const messageEl = document.getElementById('input-modal-message');
+        if (messageEl && messageEl.classList.contains('error')) {
+          messageEl.classList.remove('error');
+          if (messageEl.dataset.originalMessage) {
+            messageEl.textContent = messageEl.dataset.originalMessage;
           }
         }
       });
@@ -249,6 +287,7 @@ INPUT_MODAL_HTML = """
     <h3 id="input-modal-title">Enter Value</h3>
     <p id="input-modal-message">Please enter a value:</p>
     <input type="text" id="input-modal-field" placeholder="Enter text..." />
+    <div class="modal-error" id="input-modal-error"></div>
     <div class="modal-actions">
       <button class="modal-btn" id="input-modal-cancel-btn" onclick="submitInputModalValue('cancel', this)">Cancel</button>
       <button class="modal-btn primary" id="input-modal-submit-btn" onclick="submitInputModalValue('submit', this)">Save</button>
@@ -258,7 +297,7 @@ INPUT_MODAL_HTML = """
 """
 
 
-def show_input_modal_js(title, message="", placeholder="Enter text...", default_value="", submit_button_text="Save", context=""):
+def show_input_modal_js(title, message="", placeholder="Enter text...", default_value="", submit_button_text="Save", context="", validation_js=""):
     """
     Generate JavaScript function to show the input modal.
 
@@ -269,12 +308,18 @@ def show_input_modal_js(title, message="", placeholder="Enter text...", default_
         default_value: Default value to pre-fill (can be Gradio variable)
         submit_button_text: Text for the submit button (default: "Save")
         context: Context prefix for the submitted value (e.g., "emotion_", "sample_")
+        validation_js: Optional JavaScript validation function that takes a value and returns error message or null
 
     Returns:
         JavaScript function string to use in Gradio's .click(js=...) parameter
     """
     # If default_value is provided as a string literal, wrap it in quotes
     # Otherwise assume it's a Gradio variable name that will be passed
+    
+    validation_setup = ""
+    if validation_js:
+        validation_setup = f"window.inputModalValidation = {validation_js};"
+    
     return f"""
     (defaultVal) => {{
         const overlay = document.getElementById('input-modal-overlay');
@@ -285,6 +330,7 @@ def show_input_modal_js(title, message="", placeholder="Enter text...", default_
         const inputField = document.getElementById('input-modal-field');
         const submitBtn = document.getElementById('input-modal-submit-btn');
         const cancelBtn = document.getElementById('input-modal-cancel-btn');
+        const errorEl = document.getElementById('input-modal-error');
 
         if (titleEl) titleEl.textContent = {title!r};
         if (messageEl) {{
@@ -302,6 +348,12 @@ def show_input_modal_js(title, message="", placeholder="Enter text...", default_
         if (cancelBtn) {{
             cancelBtn.setAttribute('data-context', {context!r});
         }}
+        if (errorEl) {{
+            errorEl.classList.remove('show');
+            errorEl.textContent = '';
+        }}
+
+        {validation_setup}
 
         overlay.classList.add('show');
         
