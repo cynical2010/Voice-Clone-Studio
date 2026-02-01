@@ -8,6 +8,7 @@ from qwen_tts import Qwen3TTSModel
 from datetime import datetime
 import numpy as np
 import hashlib
+import subprocess
 import random
 import json
 import shutil
@@ -117,16 +118,18 @@ def play_completion_beep():
                     import subprocess
                     subprocess.Popen(["afplay", str(notification_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 else:
-                    # Linux: Try aplay (ALSA), fallback to paplay (PulseAudio)
+                    # Linux: Try aplay (ALSA), fallback to paplay (PulseAudio), fail silently if neither exists
                     import subprocess
                     try:
                         subprocess.Popen(["aplay", "-q", str(notification_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     except FileNotFoundError:
-                        subprocess.Popen(["paplay", str(notification_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except Exception as e:
-                # Fallback to ASCII bell if audio playback fails
-                print(f"⚠ Audio playback failed: {e}", flush=True)
-                print('\a', end='', flush=True)
+                        try:
+                            subprocess.Popen(["paplay", str(notification_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        except FileNotFoundError:
+                            pass  # No audio player available, fail silently
+            except Exception:
+                # Fail silently for notification beeps
+                pass
         else:
             # Notification file missing, use ASCII bell
             print('\a', end='', flush=True)
@@ -3579,9 +3582,6 @@ def convert_all_finetune_audio(folder, progress=gr.Progress()):
 
 def train_model(folder, speaker_name, ref_audio_filename, batch_size, learning_rate, num_epochs, save_interval, progress=gr.Progress()):
     """Complete training workflow: validate, prepare data, and train model."""
-    import subprocess
-    import json
-    import sys
 
     # ============== STEP 1: Validation ==============
     progress(0.0, desc="Step 1/3: Validating dataset...")
@@ -3757,15 +3757,9 @@ def train_model(folder, speaker_name, ref_audio_filename, batch_size, learning_r
         status_log.append("   Please ensure Qwen3-TTS repository is cloned.")
         return "\n".join(status_log)
 
-    # Get venv Python executable
-    venv_python = Path(__file__).parent / "venv" / "Scripts" / "python.exe"
-    if not venv_python.exists():
-        status_log.append("❌ Virtual environment not found!")
-        status_log.append(f"   Expected at: {venv_python}")
-        return "\n".join(status_log)
-
     prepare_cmd = [
-        str(venv_python),
+        sys.executable,
+        "-u",  # Unbuffered output for real-time progress
         str(prepare_script.absolute()),
         "--device", "cuda:0",
         "--tokenizer_model_path", "Qwen/Qwen3-TTS-Tokenizer-12Hz",
@@ -3803,7 +3797,7 @@ def train_model(folder, speaker_name, ref_audio_filename, batch_size, learning_r
             return "\n".join(status_log)
 
         status_log.append("")
-        status_log.append("Audio codes extracted successfully")
+        status_log.append("✓ Audio codes extracted successfully")
 
     except Exception as e:
         status_log.append(f"❌ Error running prepare_data.py: {str(e)}")
@@ -3838,16 +3832,17 @@ def train_model(folder, speaker_name, ref_audio_filename, batch_size, learning_r
             allow_patterns=["*.json", "*.safetensors", "*.txt", "*.npz"],
             local_files_only=offline_mode  # Will error if not cached in offline mode
         )
-        status_log.append(f"Using cached model at: {base_model_path}")
+        status_log.append(f"✓ Using cached model at: {base_model_path}")
     except Exception as e:
         status_log.append(f"❌ Failed to locate/download base model: {str(e)}")
         return "\n".join(status_log)
 
     # Get attention implementation preference from config
-    attn_impl = _user_config.get("attention_implementation", "auto")
+    attn_impl = _user_config.get("attention_mechanism", "auto")
 
     sft_cmd = [
-        str(venv_python),
+        sys.executable,
+        "-u",  # Unbuffered output for real-time progress
         str(sft_script.absolute()),
         "--init_model_path", base_model_path,  # Use local path instead of model ID
         "--output_model_path", str(output_dir),
@@ -3860,6 +3855,7 @@ def train_model(folder, speaker_name, ref_audio_filename, batch_size, learning_r
         "--attn_implementation", attn_impl
     ]
 
+    status_log.append("")
     status_log.append("Training configuration:")
     status_log.append(f"  Base model: {base_model_id}")
     status_log.append(f"  Attention implementation: {attn_impl}")
@@ -3919,19 +3915,16 @@ def train_model(folder, speaker_name, ref_audio_filename, batch_size, learning_r
         status_log.append("=" * 60)
         status_log.append("TRAINING COMPLETED SUCCESSFULLY!")
         status_log.append("=" * 60)
-        status_log.append(f"Model will be saved to: {output_dir}")
+        status_log.append(f"Model saved to: {output_dir}")
         status_log.append(f"Speaker name: {speaker_name.strip()}")
         status_log.append("")
-        status_log.append("Monitor the terminal window for progress.")
-        status_log.append("When training completes, you'll see:")
-        status_log.append(f"  - Checkpoints in: {output_dir}/checkpoint-epoch-N/")
-        status_log.append("")
-        status_log.append("To use your trained model after completion:")
+        status_log.append("To use your trained model:")
         status_log.append("  1. Go to Voice Presets tab")
         status_log.append("  2. Select 'Trained Models' radio button")
         status_log.append(f"  3. Click refresh and select '{speaker_name.strip()}'")
 
-        progress(1.0, desc="Training launched in terminal!")
+        progress(1.0, desc="Training complete!")
+        play_completion_beep()
 
     except Exception as e:
         status_log.append(f"❌ Error during training: {str(e)}")
