@@ -1,11 +1,16 @@
 """
-Help content for Voice Clone Studio UI.
-Contains all help documentation for each feature tab.
+Help Guide Tab
+
+Displays documentation and tips for using Voice Clone Studio.
 """
 
+import gradio as gr
 from textwrap import dedent
+from modules.core_components.tools.base import Tab, TabConfig
+from modules.core_components.tab_utils import format_help_html
 
 
+# Help content functions
 def show_voice_clone_help():
     """Return help content for Voice Clone tab."""
     return dedent("""
@@ -377,3 +382,77 @@ def show_tips_help():
         - **Seed control**: Reproducible generation
         - **Batch processing**: Automate repetitive tasks
         """)
+
+
+class HelpGuideTab(Tab):
+    """Help Guide tab implementation."""
+    
+    config = TabConfig(
+        name="Help Guide",
+        module_name="tab_help",
+        description="Documentation and usage tips",
+        enabled=True,
+        category="utility"
+    )
+    
+    @classmethod
+    def create_tab(cls, shared_state):
+        """Create Help Guide tab UI."""
+        components = {}
+        
+        with gr.TabItem("Help Guide"):
+            gr.Markdown("# Voice Clone Studio - Help & Guide")
+            
+            components['help_topic'] = gr.Radio(
+                choices=[
+                    "Voice Clone",
+                    "Voice Presets",
+                    "Conversation",
+                    "Voice Design",
+                    "Prep Samples",
+                    "Finetune Dataset",
+                    "Train Model",
+                    "Tips & Tricks"
+                ],
+                value="Voice Clone",
+                show_label=False,
+                interactive=True,
+                container=False
+            )
+            
+            components['help_content'] = gr.HTML(
+                value=format_help_html(show_voice_clone_help()),
+                container=True,
+                padding=True
+            )
+        
+        return components
+    
+    @classmethod
+    def setup_events(cls, components, shared_state):
+        """Wire up Help Guide events."""
+        
+        def show_help(topic):
+            """Show help for selected topic."""
+            help_map = {
+                "Voice Clone": show_voice_clone_help,
+                "Conversation": show_conversation_help,
+                "Voice Presets": show_voice_presets_help,
+                "Voice Design": show_voice_design_help,
+                "Prep Samples": show_prep_samples_help,
+                "Finetune Dataset": show_finetune_help,
+                "Train Model": show_train_help,
+                "Tips & Tricks": show_tips_help
+            }
+            return format_help_html(help_map[topic]())
+        
+        # Event handler for radio selection
+        components['help_topic'].change(
+            fn=show_help,
+            inputs=components['help_topic'],
+            outputs=components['help_content']
+        )
+
+
+# Export for tab registry
+get_tab_class = lambda: HelpGuideTab
