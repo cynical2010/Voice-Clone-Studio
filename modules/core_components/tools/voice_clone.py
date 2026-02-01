@@ -3,9 +3,22 @@ Voice Clone Tab
 
 Clone voices from samples using Qwen3-TTS or VibeVoice.
 """
-
+# Setup path for standalone testing BEFORE imports
+if __name__ == "__main__":
+    import sys
+    from pathlib import Path
+    project_root = Path(__file__).parent.parent.parent.parent
+    sys.path.insert(0, str(project_root))
 import gradio as gr
+import soundfile as sf
+import torch
+import random
+from datetime import datetime
+from pathlib import Path
+from textwrap import dedent
+
 from modules.core_components.tools.base import Tab, TabConfig
+from modules.core_components.ai_models.tts_manager import get_tts_manager
 
 
 class VoiceCloneTab(Tab):
@@ -283,12 +296,12 @@ class VoiceCloneTab(Tab):
     def setup_events(cls, components, shared_state):
         """Wire up Voice Clone tab events."""
         
-        # Get helper functions
+        # Get helper functions and directories
         get_sample_choices = shared_state['get_sample_choices']
         get_available_samples = shared_state['get_available_samples']
         get_prompt_cache_path = shared_state['get_prompt_cache_path']
+        get_or_create_voice_prompt = shared_state['get_or_create_voice_prompt']
         apply_emotion_preset = shared_state['apply_emotion_preset']
-        generate_audio = shared_state['generate_audio']
         refresh_samples = shared_state['refresh_samples']
         show_input_modal_js = shared_state['show_input_modal_js']
         show_confirmation_modal_js = shared_state['show_confirmation_modal_js']
@@ -297,6 +310,150 @@ class VoiceCloneTab(Tab):
         save_preference = shared_state['save_preference']
         confirm_trigger = shared_state['confirm_trigger']
         input_trigger = shared_state['input_trigger']
+        OUTPUT_DIR = shared_state['OUTPUT_DIR']
+        play_completion_beep = shared_state.get('play_completion_beep')
+        
+        # Get TTS manager (singleton)
+        tts_manager = get_tts_manager()
+        
+        def generate_audio_handler(sample_name, text_to_generate, language, seed, model_selection="Qwen3 - Small",
+                                   qwen_do_sample=True, qwen_temperature=0.9, qwen_top_k=50, qwen_top_p=1.0, qwen_repetition_penalty=1.05,
+                                   qwen_max_new_tokens=2048,
+                                   vv_do_sample=False, vv_temperature=1.0, vv_top_k=50, vv_top_p=1.0, vv_repetition_penalty=1.0,
+                                   vv_cfg_scale=3.0, vv_num_steps=20, progress=gr.Progress()):
+            """Generate audio using voice cloning - supports both Qwen and VibeVoice engines."""
+            if not sample_name:
+                return None, "❌ Please select a voice sample first."
+
+            if not text_to_generate or not text_to_generate.strip():
+                return None, "❌ Please enter text to generate."
+
+            # Parse model selection to determine engine and size
+            if "VibeVoice" in model_selection:
+                engine = "vibevoice"
+                if "Small" in model_selection:
+                    model_size = "1.5B"
+                elif "4-bit" in model_selection:
+                    model_size = "Large (4-bit)"
+                else:  # Large
+                    model_size = "Large"
+            else:  # Qwen3
+                engine = "qwen"
+                if "Small" in model_selection:
+                    model_size = "0.6B"
+                else:  # Large
+                    model_size = "1.7B"
+
+            # Find the selected sample
+            samples = get_available_samples()
+            sample = None
+            for s in samples:
+                if s["name"] == sample_name:
+                    sample = s
+                    break
+
+            if not sample:
+                return None, f"❌ Sample '{sample_name}' not found."
+
+            try:
+                # Set the seed for reproducibility
+                seed = int(seed) if seed is not None else -1
+                if seed < 0:
+                    seed = random.randint(0, 2147483647)
+
+                torch.manual_seed(seed)
+                if torch.cuda.is_available():
+                    torch.cuda.manual_seed_all(seed)
+                seed_msg = f"Seed: {seed}"
+
+                if engine == "qwen":
+                    # Qwen engine - uses cached prompts
+                    progress(0.1, desc=f"Loading Qwen3 model ({model_size})...")
+
+                    # Get or create the voice prompt (with caching)
+                    model = tts_manager.get_qwen3_custom_voice(model_size)
+                    prompt_items, was_cached = get_or_create_voice_prompt(
+                        model=model,
+                        sample_name=sample_name,
+                        wav_path=sample["wav_path"],
+                        ref_text=sample["ref_text"],
+                        model_size=model_size,
+                        progress_callback=progress
+                    )
+
+                    cache_status = "cached" if was_cached else "newly processed"
+                    progress(0.6, desc=f"Generating audio ({cache_status} prompt)...")
+
+                    # Generate using manager method
+                    audio_data, sr = tts_manager.generate_voice_clone_qwen(
+                        text=text_to_generate,
+                        language=language,
+                        prompt_items=prompt_items,
+                        seed=seed,
+                        do_sample=qwen_do_sample,
+                        temperature=qwen_temperature,
+                        top_k=qwen_top_k,
+                        top_p=qwen_top_p,
+                        repetition_penalty=qwen_repetition_penalty,
+                        max_new_tokens=qwen_max_new_tokens,
+                        model_size=model_size
+                    )
+                    wavs = [audio_data]
+
+                    engine_display = f"Qwen3-{model_size}"
+
+                else:  # vibevoice engine
+                    progress(0.1, desc=f"Loading VibeVoice model ({model_size})...")
+
+                    # Generate using manager method
+                    audio_data, sr = tts_manager.generate_voice_clone_vibevoice(
+                        text=text_to_generate,
+                        voice_sample_path=sample["wav_path"],
+                        seed=seed,
+                        do_sample=vv_do_sample,
+                        temperature=vv_temperature,
+                        top_k=vv_top_k,
+                        top_p=vv_top_p,
+                        repetition_penalty=vv_repetition_penalty,
+                        cfg_scale=vv_cfg_scale,
+                        num_steps=vv_num_steps,
+                        model_size=model_size,
+                        user_config=shared_state.get('_user_config', {})
+                    )
+                    wavs = [audio_data]
+
+                    engine_display = f"VibeVoice-{model_size}"
+                    cache_status = "no caching (VibeVoice)"
+
+                progress(0.8, desc="Saving audio...")
+                # Generate unique filename
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                safe_name = "".join(c if c.isalnum() else "_" for c in sample_name)
+                output_file = OUTPUT_DIR / f"{safe_name}_{timestamp}.wav"
+
+                sf.write(str(output_file), wavs[0], sr)
+
+                # Save metadata file
+                metadata_file = output_file.with_suffix(".txt")
+                metadata = dedent(f"""\
+                    Generated: {timestamp}
+                    Sample: {sample_name}
+                    Engine: {engine_display}
+                    Language: {language}
+                    Seed: {seed}
+                    Text: {text_to_generate.strip()}
+                    """)
+                metadata_file.write_text(metadata, encoding="utf-8")
+
+                progress(1.0, desc="Done!")
+                if play_completion_beep:
+                    play_completion_beep()
+                return str(output_file), f"Generated using {engine_display}. {cache_status}\n{seed_msg}"
+
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return None, f"❌ Error generating audio: {str(e)}"
         
         import soundfile as sf
         
@@ -354,7 +511,7 @@ class VoiceCloneTab(Tab):
         )
 
         components['generate_btn'].click(
-            generate_audio,
+            generate_audio_handler,
             inputs=[components['sample_dropdown'], components['text_input'], components['language_dropdown'], components['seed_input'], components['clone_model_dropdown'],
                     components['qwen_do_sample'], components['qwen_temperature'], components['qwen_top_k'], components['qwen_top_p'], components['qwen_repetition_penalty'],
                     components['qwen_max_new_tokens'],
@@ -481,3 +638,144 @@ class VoiceCloneTab(Tab):
 
 # Export for tab registry
 get_tab_class = lambda: VoiceCloneTab
+
+
+if __name__ == "__main__":
+    """Standalone testing of Voice Clone tool."""
+    print("[*] Starting Voice Clone Tool - Standalone Mode")
+    
+    from pathlib import Path
+    import sys
+    import json
+    
+    # Add project root to path
+    project_root = Path(__file__).parent.parent.parent.parent
+    sys.path.insert(0, str(project_root))
+    
+    # Import constants and modals
+    from modules.core_components.constants import (
+        LANGUAGES,
+        VOICE_CLONE_OPTIONS,
+        DEFAULT_VOICE_CLONE_MODEL,
+        QWEN_GENERATION_DEFAULTS,
+        VIBEVOICE_GENERATION_DEFAULTS
+    )
+    from modules.core_components import (
+        CORE_EMOTIONS,
+        CONFIRMATION_MODAL_HTML,
+        CONFIRMATION_MODAL_CSS,
+        INPUT_MODAL_HTML,
+        INPUT_MODAL_CSS,
+        show_confirmation_modal_js,
+        show_input_modal_js,
+        handle_save_emotion,
+        handle_delete_emotion
+    )
+    from modules.core_components.tool_utils import (
+        load_config,
+        save_preference as save_pref_to_file,
+        TRIGGER_HIDE_CSS
+    )
+    
+    # Load config
+    user_config = load_config()
+    active_emotions = user_config.get('emotions', CORE_EMOTIONS)
+    
+    SAMPLES_DIR = project_root / "samples"
+    OUTPUT_DIR = project_root / "output"
+    SAMPLES_DIR.mkdir(exist_ok=True)
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    
+    # Helper: Get sample choices
+    def get_sample_choices():
+        samples = []
+        for json_file in SAMPLES_DIR.glob("*.json"):
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    meta = json.load(f)
+                    samples.append(meta.get("name", json_file.stem))
+            except:
+                samples.append(json_file.stem)
+        return samples if samples else ["(No samples found)"]
+    
+    def get_available_samples():
+        samples = []
+        for json_file in SAMPLES_DIR.glob("*.json"):
+            wav_file = json_file.with_suffix(".wav")
+            if wav_file.exists():
+                try:
+                    with open(json_file, 'r', encoding='utf-8') as f:
+                        meta = json.load(f)
+                    samples.append({
+                        "name": meta.get("name", json_file.stem),
+                        "wav_path": str(wav_file),
+                        "ref_text": meta.get("text", ""),
+                        "meta": meta
+                    })
+                except:
+                    pass
+        return samples
+    
+    def get_prompt_cache_path(sample_name, model_size):
+        return project_root / "temp" / f"{sample_name}_{model_size}_prompt.pt"
+    
+    def get_or_create_voice_prompt(model, sample_name, wav_path, ref_text, model_size, progress_callback=None):
+        # Mock - just return that it's not cached
+        return None, False
+    
+    # Shared state with real modal support
+    shared_state = {
+        'LANGUAGES': LANGUAGES,
+        'VOICE_CLONE_OPTIONS': VOICE_CLONE_OPTIONS,
+        'DEFAULT_VOICE_CLONE_MODEL': DEFAULT_VOICE_CLONE_MODEL,
+        '_user_config': user_config,
+        '_active_emotions': active_emotions,
+        'OUTPUT_DIR': OUTPUT_DIR,
+        'SAMPLES_DIR': SAMPLES_DIR,
+        'get_sample_choices': get_sample_choices,
+        'get_available_samples': get_available_samples,
+        'get_prompt_cache_path': get_prompt_cache_path,
+        'get_or_create_voice_prompt': get_or_create_voice_prompt,
+        'apply_emotion_preset': lambda e, i: (0.9, 1.0, 1.05, i),
+        'refresh_samples': lambda: gr.update(choices=get_sample_choices()),
+        'show_input_modal_js': show_input_modal_js,
+        'show_confirmation_modal_js': show_confirmation_modal_js,
+        'save_emotion_handler': lambda name, intensity, temp, rep_pen, top_p: handle_save_emotion(name, intensity, temp, rep_pen, top_p, user_config, active_emotions),
+        'delete_emotion_handler': lambda confirm_val, emotion_name: handle_delete_emotion(confirm_val, emotion_name, user_config, active_emotions),
+        'save_preference': lambda k, v: save_pref_to_file(user_config, k, v),
+        'play_completion_beep': lambda: print("[Beep] Complete!"),
+        'confirm_trigger': None,
+        'input_trigger': None,
+    }
+    
+    from modules.core_components.ui_components import create_qwen_advanced_params, create_vibevoice_advanced_params
+    shared_state['create_qwen_advanced_params'] = create_qwen_advanced_params
+    shared_state['create_vibevoice_advanced_params'] = create_vibevoice_advanced_params
+    
+    print(f"[*] Samples: {SAMPLES_DIR}")
+    print(f"[*] Output: {OUTPUT_DIR}")
+    print(f"[*] Found {len(get_available_samples())} samples")
+    
+    # Load custom theme
+    theme = gr.themes.Base.load('modules/core_components/theme.json')
+    
+    with gr.Blocks(title="Voice Clone - Standalone", head=CONFIRMATION_MODAL_CSS + INPUT_MODAL_CSS, css=TRIGGER_HIDE_CSS) as app:
+        # Add modal HTML
+        gr.HTML(CONFIRMATION_MODAL_HTML)
+        gr.HTML(INPUT_MODAL_HTML)
+        
+        gr.Markdown("# 🎤 Voice Clone Tool (Standalone Testing)")
+        gr.Markdown("*Standalone mode with full modal support*")
+        
+        # Hidden trigger widgets - visible but hidden via CSS
+        with gr.Row():
+            confirm_trigger = gr.Textbox(label="Confirm Trigger", value="", elem_id="confirm-trigger")
+            input_trigger = gr.Textbox(label="Input Trigger", value="", elem_id="input-trigger")
+        shared_state['confirm_trigger'] = confirm_trigger
+        shared_state['input_trigger'] = input_trigger
+        
+        components = VoiceCloneTab.create_tab(shared_state)
+        VoiceCloneTab.setup_events(components, shared_state)
+    
+    print("[*] Launching on http://127.0.0.1:7862")
+    app.launch(theme=theme, server_port=7862, server_name="127.0.0.1", share=False, inbrowser=True)

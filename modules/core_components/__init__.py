@@ -23,6 +23,23 @@ from .emotion_manager import (
     handle_delete_emotion
 )
 
+from .constants import (
+    MODEL_SIZES,
+    MODEL_SIZES_BASE,
+    MODEL_SIZES_CUSTOM,
+    MODEL_SIZES_DESIGN,
+    MODEL_SIZES_VIBEVOICE,
+    VOICE_CLONE_OPTIONS,
+    DEFAULT_VOICE_CLONE_MODEL,
+    LANGUAGES,
+    CUSTOM_VOICE_SPEAKERS,
+    SUPPORTED_MODELS,
+    SAMPLE_RATE,
+    DEFAULT_CONFIG,
+    QWEN_GENERATION_DEFAULTS,
+    VIBEVOICE_GENERATION_DEFAULTS,
+)
+
 __all__ = [
     # Confirmation modal
     "CONFIRMATION_MODAL_CSS",
@@ -41,4 +58,19 @@ __all__ = [
     "calculate_emotion_values",
     "handle_save_emotion",
     "handle_delete_emotion",
+    # Constants
+    "MODEL_SIZES",
+    "MODEL_SIZES_BASE",
+    "MODEL_SIZES_CUSTOM",
+    "MODEL_SIZES_DESIGN",
+    "MODEL_SIZES_VIBEVOICE",
+    "VOICE_CLONE_OPTIONS",
+    "DEFAULT_VOICE_CLONE_MODEL",
+    "LANGUAGES",
+    "CUSTOM_VOICE_SPEAKERS",
+    "SUPPORTED_MODELS",
+    "SAMPLE_RATE",
+    "DEFAULT_CONFIG",
+    "QWEN_GENERATION_DEFAULTS",
+    "VIBEVOICE_GENERATION_DEFAULTS",
 ]

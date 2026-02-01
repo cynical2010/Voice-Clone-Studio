@@ -3,11 +3,32 @@ Conversation Tab
 
 Create conversations using VibeVoice, Qwen Base, or Qwen CustomVoice.
 """
-
+# Setup path for standalone testing BEFORE imports
+if __name__ == "__main__":
+    import sys
+    from pathlib import Path
+    project_root = Path(__file__).parent.parent.parent.parent
+    sys.path.insert(0, str(project_root))
 import gradio as gr
+import soundfile as sf
+import torch
+import numpy as np
+import random
+import re
+from datetime import datetime
+from pathlib import Path
 from textwrap import dedent
+
 from modules.core_components.tools.base import Tab, TabConfig
-from modules.core_components.tab_utils import format_help_html
+from modules.core_components.tool_utils import format_help_html
+from modules.core_components.ai_models.tts_manager import get_tts_manager
+
+# TODO: Add these helper methods to this class before setup_events():
+# - generate_conversation_handler() - Qwen CustomVoice with preset speakers
+# - generate_conversation_base_handler() - Qwen Base with custom voice samples  
+# - generate_vibevoice_longform_handler() - VibeVoice long-form generation
+# Each handler should call get_tts_manager() internally and be fully self-contained
+# See voice_clone_studio.py lines 1813-2400 for implementation reference
 
 
 class ConversationTab(Tab):
@@ -466,10 +487,10 @@ class ConversationTab(Tab):
             if model_type == "Qwen CustomVoice":
                 qwen_size = "1.7B" if qwen_custom_model_size == "Large" else "0.6B"
                 return generate_conversation(script, qwen_custom_pause_linebreak, qwen_custom_pause_period,
-                                            qwen_custom_pause_comma, qwen_custom_pause_question,
-                                            qwen_custom_pause_hyphen, qwen_lang, qwen_seed, qwen_size,
-                                            qwen_do_sample, qwen_temperature, qwen_top_k, qwen_top_p,
-                                            qwen_repetition_penalty, qwen_max_new_tokens)
+                                             qwen_custom_pause_comma, qwen_custom_pause_question,
+                                             qwen_custom_pause_hyphen, qwen_lang, qwen_seed, qwen_size,
+                                             qwen_do_sample, qwen_temperature, qwen_top_k, qwen_top_p,
+                                             qwen_repetition_penalty, qwen_max_new_tokens)
             elif model_type == "Qwen Base":
                 qwen_size = "1.7B" if qwen_base_model_size == "Large" else "0.6B"
                 voice_samples = prepare_voice_samples_dict(
@@ -645,3 +666,102 @@ class ConversationTab(Tab):
 
 # Export for tab registry
 get_tab_class = lambda: ConversationTab
+
+
+if __name__ == "__main__":
+    """Standalone testing of Conversation tool."""
+    print("[*] Starting Conversation Tool - Standalone Mode")
+    print("[!] Note: Conversation handlers not yet fully refactored")
+    
+    from pathlib import Path
+    import sys
+    import json
+    
+    project_root = Path(__file__).parent.parent.parent.parent
+    sys.path.insert(0, str(project_root))
+    
+    from modules.core_components.ui_components import (
+        create_qwen_advanced_params,
+        create_vibevoice_advanced_params,
+        create_emotion_intensity_slider
+    )
+    from modules.core_components.constants import (
+        LANGUAGES,
+        CUSTOM_VOICE_SPEAKERS,
+        MODEL_SIZES_CUSTOM,
+        MODEL_SIZES_BASE,
+        MODEL_SIZES_VIBEVOICE,
+        QWEN_GENERATION_DEFAULTS,
+        VIBEVOICE_GENERATION_DEFAULTS
+    )
+    from modules.core_components.tool_utils import load_config, save_preference as save_pref_to_file
+    
+    # Load config
+    user_config = load_config()
+    
+    SAMPLES_DIR = project_root / "samples"
+    OUTPUT_DIR = project_root / "output"
+    SAMPLES_DIR.mkdir(exist_ok=True)
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    
+    def get_sample_choices():
+        samples = []
+        for json_file in SAMPLES_DIR.glob("*.json"):
+            samples.append(json_file.stem)
+        return samples if samples else ["(No samples found)"]
+    
+    def get_available_samples():
+        samples = []
+        for json_file in SAMPLES_DIR.glob("*.json"):
+            wav_file = json_file.with_suffix(".wav")
+            if wav_file.exists():
+                try:
+                    with open(json_file, 'r') as f:
+                        meta = json.load(f)
+                    samples.append({
+                        "name": meta.get("name", json_file.stem),
+                        "wav_path": str(wav_file),
+                        "ref_text": meta.get("text", ""),
+                        "meta": meta
+                    })
+                except:
+                    pass
+        return samples
+    
+    shared_state = {
+        'get_sample_choices': get_sample_choices,
+        'get_available_samples': get_available_samples,
+        'LANGUAGES': LANGUAGES,
+        'CUSTOM_VOICE_SPEAKERS': CUSTOM_VOICE_SPEAKERS,
+        'MODEL_SIZES_CUSTOM': MODEL_SIZES_CUSTOM,
+        'MODEL_SIZES_BASE': MODEL_SIZES_BASE,
+        'MODEL_SIZES_VIBEVOICE': MODEL_SIZES_VIBEVOICE,
+        'create_vibevoice_advanced_params': create_vibevoice_advanced_params,
+        'create_qwen_advanced_params': create_qwen_advanced_params,
+        'create_emotion_intensity_slider': create_emotion_intensity_slider,
+        '_user_config': user_config,
+        'OUTPUT_DIR': OUTPUT_DIR,
+        'SAMPLES_DIR': SAMPLES_DIR,
+        'generate_conversation': lambda *args: (None, "TODO: Not yet implemented"),
+        'generate_conversation_base': lambda *args: (None, "TODO: Not yet implemented"),
+        'generate_vibevoice_longform': lambda *args: (None, "TODO: Not yet implemented"),
+        'save_preference': lambda k, v: save_pref_to_file(user_config, k, v),
+        'play_completion_beep': lambda: print("[Beep] Complete!"),
+    }
+    
+    print(f"[*] Samples: {SAMPLES_DIR} ({len(get_available_samples())} found)")
+    print(f"[*] Output: {OUTPUT_DIR}")
+    
+    # Load custom theme
+    theme = gr.themes.Base.load('modules/core_components/theme.json')
+    
+    with gr.Blocks(title="Conversation - Standalone") as app:
+        gr.Markdown("# 💬 Conversation Tool (Standalone Testing)")
+        gr.Markdown("*Standalone mode with persistent settings*")
+        gr.Markdown("*⚠️ Generation handlers not yet refactored - will show TODO message*")
+        
+        components = ConversationTab.create_tab(shared_state)
+        ConversationTab.setup_events(components, shared_state)
+    
+    print("[*] Launching on http://127.0.0.1:7864")
+    app.launch(theme=theme, server_port=7864, server_name="127.0.0.1", share=False, inbrowser=True)

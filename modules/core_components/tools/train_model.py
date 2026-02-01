@@ -7,7 +7,7 @@ Train custom voice models using finetuning datasets.
 import gradio as gr
 from textwrap import dedent
 from modules.core_components.tools.base import Tab, TabConfig
-from modules.core_components.tab_utils import format_help_html
+from modules.core_components.tool_utils import format_help_html
 from pathlib import Path
 
 

@@ -4,15 +4,29 @@ Voice Presets Tab
 Use Qwen3-TTS pre-trained models or custom trained models with style control.
 """
 
+# Setup path for standalone testing BEFORE imports
+if __name__ == "__main__":
+    import sys
+    from pathlib import Path
+    project_root = Path(__file__).parent.parent.parent.parent
+    sys.path.insert(0, str(project_root))
+
 import gradio as gr
+import soundfile as sf
+import torch
+import random
+from datetime import datetime
 from textwrap import dedent
+from pathlib import Path
+
 from modules.core_components.tools.base import Tab, TabConfig
-from modules.core_components.tab_utils import format_help_html
+from modules.core_components.tool_utils import format_help_html
+from modules.core_components.ai_models.tts_manager import get_tts_manager
 
 
 class VoicePresetsTab(Tab):
     """Voice Presets tab implementation."""
-    
+
     config = TabConfig(
         name="Voice Presets",
         module_name="tab_voice_presets",
@@ -20,12 +34,12 @@ class VoicePresetsTab(Tab):
         enabled=True,
         category="generation"
     )
-    
+
     @classmethod
     def create_tab(cls, shared_state):
         """Create Voice Presets tab UI."""
         components = {}
-        
+
         # Get helper functions and config
         get_trained_models = shared_state['get_trained_models']
         create_qwen_advanced_params = shared_state['create_qwen_advanced_params']
@@ -43,7 +57,7 @@ class VoicePresetsTab(Tab):
         save_preference = shared_state['save_preference']
         confirm_trigger = shared_state['confirm_trigger']
         input_trigger = shared_state['input_trigger']
-        
+
         with gr.TabItem("Voice Presets") as voice_presets_tab:
             components['voice_presets_tab'] = voice_presets_tab
             gr.Markdown("Use Qwen3-TTS pre-trained models or Custom Trained models with style control")
@@ -96,11 +110,10 @@ class VoicePresetsTab(Tab):
                             """)
 
                         gr.HTML(
-                            value=format_help_html(premium_speaker_guide),
+                            value=format_help_html(premium_speaker_guide, height="auto"),
                             container=True,
                             padding=True
                         )
-
                     # Trained models dropdown
                     components['trained_section'] = gr.Column(visible=False)
                     with components['trained_section']:
@@ -142,7 +155,7 @@ class VoicePresetsTab(Tab):
                         *Tip: Later epochs are usually better trained*
                         """)
                         gr.HTML(
-                            value=format_help_html(trained_models_tip),
+                            value=format_help_html(trained_models_tip, height="auto"),
                             container=True,
                             padding=True,
                         )
@@ -182,15 +195,15 @@ class VoicePresetsTab(Tab):
                     custom_params = create_qwen_advanced_params(
                         emotions_dict=_active_emotions,
                         include_emotion=True,
-                        initial_emotion="",
+                        initial_emotion=None,
                         initial_intensity=1.0,
                         visible=True
                     )
-                    
+
                     # Store emotion row references with correct names for visibility toggling
                     components['custom_emotion_row'] = custom_params['emotion_row'] if 'emotion_row' in custom_params else None
                     components['custom_emotion_buttons_row'] = custom_params['emotion_buttons_row'] if 'emotion_buttons_row' in custom_params else None
-                    
+
                     # Create alias references for backward compatibility
                     components['custom_emotion_preset'] = custom_params['emotion_preset']
                     components['custom_emotion_intensity'] = custom_params['emotion_intensity']
@@ -214,15 +227,13 @@ class VoicePresetsTab(Tab):
                     components['preset_status'] = gr.Textbox(label="Status", max_lines=5, interactive=False)
 
         return components
-    
+
     @classmethod
     def setup_events(cls, components, shared_state):
         """Wire up Voice Presets tab events."""
-        
-        # Get helper functions
+
+        # Get helper functions and directories
         get_trained_models = shared_state['get_trained_models']
-        generate_custom_voice = shared_state['generate_custom_voice']
-        generate_with_trained_model = shared_state['generate_with_trained_model']
         show_input_modal_js = shared_state['show_input_modal_js']
         show_confirmation_modal_js = shared_state['show_confirmation_modal_js']
         save_emotion_handler = shared_state['save_emotion_handler']
@@ -230,9 +241,128 @@ class VoicePresetsTab(Tab):
         save_preference = shared_state['save_preference']
         confirm_trigger = shared_state['confirm_trigger']
         input_trigger = shared_state['input_trigger']
-        
+        OUTPUT_DIR = shared_state['OUTPUT_DIR']
+        play_completion_beep = shared_state.get('play_completion_beep')
+        user_config = shared_state.get('_user_config', {})
+
+        # Get TTS manager (singleton)
+        tts_manager = get_tts_manager()
+
         custom_params = components['custom_params']
-        
+
+        def generate_custom_voice_handler(text_to_generate, language, speaker, instruct, seed, model_size="1.7B",
+                                          do_sample=True, temperature=0.9, top_k=50, top_p=1.0,
+                                          repetition_penalty=1.05, max_new_tokens=2048, progress=gr.Progress()):
+            """Generate audio using the CustomVoice model with premium speakers."""
+            if not text_to_generate or not text_to_generate.strip():
+                return None, "❌ Please enter text to generate."
+
+            if not speaker:
+                return None, "❌ Please select a speaker."
+
+            try:
+                progress(0.1, desc=f"Loading CustomVoice model ({model_size})...")
+                
+                audio_data, sr = tts_manager.generate_custom_voice(
+                    text=text_to_generate,
+                    language=language,
+                    speaker=speaker,
+                    instruct=instruct,
+                    model_size=model_size,
+                    seed=int(seed) if seed is not None else -1,
+                    do_sample=do_sample,
+                    temperature=temperature,
+                    top_k=top_k,
+                    top_p=top_p,
+                    repetition_penalty=repetition_penalty,
+                    max_new_tokens=max_new_tokens
+                )
+
+                progress(0.8, desc="Saving audio...")
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_file = OUTPUT_DIR / f"custom_{speaker}_{timestamp}.wav"
+
+                sf.write(str(output_file), audio_data, sr)
+
+                # Save metadata file
+                metadata_file = output_file.with_suffix(".txt")
+                metadata = dedent(f"""\
+                    Generated: {timestamp}
+                    Type: Custom Voice
+                    Model: CustomVoice {model_size}
+                    Speaker: {speaker}
+                    Language: {language}
+                    Seed: {seed}
+                    Instruct: {instruct.strip() if instruct else ''}
+                    Text: {text_to_generate.strip()}
+                    """)
+                metadata_file.write_text(metadata, encoding="utf-8")
+
+                progress(1.0, desc="Done!")
+                instruct_msg = f" with style: {instruct.strip()[:30]}..." if instruct and instruct.strip() else ""
+                if play_completion_beep:
+                    play_completion_beep()
+                return str(output_file), f"Audio saved to: {output_file.name}\nSpeaker: {speaker}{instruct_msg}\nSeed: {seed} | {model_size}"
+
+            except Exception as e:
+                return None, f"❌ Error generating audio: {str(e)}"
+
+        def generate_with_trained_model_handler(text_to_generate, language, speaker_name, checkpoint_path, instruct, seed,
+                                                do_sample=True, temperature=0.9, top_k=50, top_p=1.0,
+                                                repetition_penalty=1.05, max_new_tokens=2048, progress=gr.Progress()):
+            """Generate audio using a trained custom voice model checkpoint."""
+            if not text_to_generate or not text_to_generate.strip():
+                return None, "❌ Please enter text to generate."
+
+            try:
+                progress(0.1, desc=f"Loading trained model from {checkpoint_path}...")
+
+                # Call tts_manager method
+                audio_data, sr = tts_manager.generate_with_trained_model(
+                    text=text_to_generate,
+                    language=language,
+                    speaker_name=speaker_name,
+                    checkpoint_path=checkpoint_path,
+                    instruct=instruct,
+                    seed=int(seed) if seed is not None else -1,
+                    do_sample=do_sample,
+                    temperature=temperature,
+                    top_k=top_k,
+                    top_p=top_p,
+                    repetition_penalty=repetition_penalty,
+                    max_new_tokens=max_new_tokens,
+                    user_config=user_config
+                )
+
+                progress(0.8, desc="Saving audio...")
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_file = OUTPUT_DIR / f"trained_{speaker_name}_{timestamp}.wav"
+
+                sf.write(str(output_file), audio_data, sr)
+
+                # Save metadata file
+                metadata_file = output_file.with_suffix(".txt")
+                metadata = dedent(f"""\
+                    Generated: {timestamp}
+                    Type: Trained Model
+                    Model: {checkpoint_path}
+                    Speaker: {speaker_name}
+                    Language: {language}
+                    Seed: {seed}
+                    Instruct: {instruct.strip() if instruct else ''}
+                    Text: {text_to_generate.strip()}
+                    """)
+                metadata_file.write_text(metadata, encoding="utf-8")
+
+                progress(1.0, desc="Done!")
+                instruct_msg = f" with style: {instruct.strip()[:30]}..." if instruct and instruct.strip() else ""
+                if play_completion_beep:
+                    play_completion_beep()
+                return str(output_file), f"Audio saved: {output_file.name}\nSpeaker: {speaker_name}{instruct_msg}\nSeed: {seed} | Trained Model"
+
+            except Exception as e:
+                return None, f"❌ Error generating audio: {str(e)}"
+
         def extract_speaker_name(selection):
             """Extract speaker name from dropdown selection."""
             if not selection:
@@ -244,31 +374,33 @@ class VoicePresetsTab(Tab):
             is_premium = voice_type == "Premium Speakers"
 
             if is_premium:
-                return {
-                    components['premium_section']: gr.update(visible=True),
-                    components['trained_section']: gr.update(visible=False),
-                    components['custom_instruct_input']: gr.update(visible=True),
-                    components['custom_emotion_row']: gr.update(visible=False),
-                    components['custom_emotion_buttons_row']: gr.update(visible=False),
-                    components['custom_emotion_preset']: gr.update(value=None),
-                    components['custom_emotion_intensity']: gr.update(value=1.0),
-                    components['custom_temperature']: gr.update(value=0.9),
-                    components['custom_top_p']: gr.update(value=1.0),
-                    components['custom_repetition_penalty']: gr.update(value=1.05)
-                }
+                # Return in order: premium_section, trained_section, instruct_input, emotion_row, emotion_buttons_row,
+                # emotion_preset, emotion_intensity, temperature, top_p, repetition_penalty
+                return (
+                    gr.update(visible=True),   # premium_section
+                    gr.update(visible=False),  # trained_section
+                    gr.update(visible=True),   # instruct_input
+                    gr.update(visible=False),  # emotion_row
+                    gr.update(visible=False),  # emotion_buttons_row
+                    gr.update(value=None),     # emotion_preset
+                    gr.update(value=1.0),      # emotion_intensity
+                    gr.update(value=0.9),      # temperature
+                    gr.update(value=1.0),      # top_p
+                    gr.update(value=1.05)      # repetition_penalty
+                )
             else:
-                return {
-                    components['premium_section']: gr.update(visible=False),
-                    components['trained_section']: gr.update(visible=True),
-                    components['custom_instruct_input']: gr.update(visible=False),
-                    components['custom_emotion_row']: gr.update(visible=True),
-                    components['custom_emotion_buttons_row']: gr.update(visible=True),
-                    components['custom_emotion_preset']: gr.update(),
-                    components['custom_emotion_intensity']: gr.update(),
-                    components['custom_temperature']: gr.update(),
-                    components['custom_top_p']: gr.update(),
-                    components['custom_repetition_penalty']: gr.update()
-                }
+                return (
+                    gr.update(visible=False),  # premium_section
+                    gr.update(visible=True),   # trained_section
+                    gr.update(visible=False),  # instruct_input
+                    gr.update(visible=True),   # emotion_row
+                    gr.update(visible=True),   # emotion_buttons_row
+                    gr.update(),               # emotion_preset
+                    gr.update(),               # emotion_intensity
+                    gr.update(),               # temperature
+                    gr.update(),               # top_p
+                    gr.update()                # repetition_penalty
+                )
 
         def generate_with_voice_type(text, lang, speaker_sel, instruct, seed, model_size, voice_type, premium_speaker, trained_model,
                                      do_sample, temperature, top_k, top_p, repetition_penalty, max_new_tokens, progress=gr.Progress()):
@@ -279,7 +411,7 @@ class VoicePresetsTab(Tab):
                 if not speaker:
                     return None, "❌ Please select a premium speaker"
 
-                return generate_custom_voice(
+                return generate_custom_voice_handler(
                     text, lang, speaker, instruct, seed,
                     "1.7B" if model_size == "Large" else "0.6B",
                     do_sample, temperature, top_k, top_p, repetition_penalty, max_new_tokens,
@@ -301,43 +433,51 @@ class VoicePresetsTab(Tab):
                 if not model_path:
                     return None, f"❌ Model not found: {trained_model}"
 
-                return generate_with_trained_model(
+                return generate_with_trained_model_handler(
                     text, lang, speaker_name, model_path, instruct, seed,
                     do_sample, temperature, top_k, top_p, repetition_penalty, max_new_tokens,
                     progress
                 )
 
-        components['voice_type_radio'].change(
-            toggle_voice_type,
-            inputs=[components['voice_type_radio']],
-            outputs=[
+        # Only wire events for components that exist (not None)
+        if components.get('voice_type_radio') is not None:
+            outputs = [
                 components['premium_section'], components['trained_section'],
-                components['custom_instruct_input'], components['custom_emotion_row'], components['custom_emotion_buttons_row'],
+                components['custom_instruct_input'],
+                components.get('custom_emotion_row'),
+                components.get('custom_emotion_buttons_row'),
                 components['custom_emotion_preset'], components['custom_emotion_intensity'],
                 components['custom_temperature'], components['custom_top_p'], components['custom_repetition_penalty']
             ]
-        )
+            # Filter out None values
+            outputs = [o for o in outputs if o is not None]
+
+            components['voice_type_radio'].change(
+                toggle_voice_type,
+                inputs=[components['voice_type_radio']],
+                outputs=outputs
+            )
 
         components['refresh_trained_btn'].click(
             lambda: (
-                get_trained_models(),
                 gr.update(choices=["(Select Model)"] + [m['display_name'] for m in get_trained_models()] if get_trained_models() else ["(No trained models found)"])
             ),
             outputs=[components['trained_model_dropdown']]
         )
 
         # Apply emotion preset to Custom Voice parameters
-        components['custom_emotion_preset'].change(
-            custom_params['update_from_emotion'],
-            inputs=[components['custom_emotion_preset'], components['custom_emotion_intensity']],
-            outputs=[components['custom_temperature'], components['custom_top_p'], components['custom_repetition_penalty']]
-        )
+        if 'update_from_emotion' in components.get('custom_params', {}):
+            components['custom_emotion_preset'].change(
+                components['custom_params']['update_from_emotion'],
+                inputs=[components['custom_emotion_preset'], components['custom_emotion_intensity']],
+                outputs=[components['custom_temperature'], components['custom_top_p'], components['custom_repetition_penalty']]
+            )
 
-        components['custom_emotion_intensity'].change(
-            custom_params['update_from_emotion'],
-            inputs=[components['custom_emotion_preset'], components['custom_emotion_intensity']],
-            outputs=[components['custom_temperature'], components['custom_top_p'], components['custom_repetition_penalty']]
-        )
+            components['custom_emotion_intensity'].change(
+                components['custom_params']['update_from_emotion'],
+                inputs=[components['custom_emotion_preset'], components['custom_emotion_intensity']],
+                outputs=[components['custom_temperature'], components['custom_top_p'], components['custom_repetition_penalty']]
+            )
 
         # Emotion management buttons
         components['custom_save_emotion_btn'].click(
@@ -415,6 +555,138 @@ class VoicePresetsTab(Tab):
             outputs=[components['custom_emotion_preset']]
         )
 
+        # Save preferences when settings change
+        components['custom_model_size'].change(
+            lambda x: save_preference("custom_voice_size", x),
+            inputs=[components['custom_model_size']],
+            outputs=[]
+        )
+
+        components['custom_language'].change(
+            lambda x: save_preference("language", x),
+            inputs=[components['custom_language']],
+            outputs=[]
+        )
 
 # Export for tab registry
 get_tab_class = lambda: VoicePresetsTab
+
+if __name__ == "__main__":
+    """Standalone testing of Voice Presets tool."""
+    print("[*] Starting Voice Presets Tool - Standalone Mode")
+
+    from pathlib import Path
+    import sys
+
+    project_root = Path(__file__).parent.parent.parent.parent
+    sys.path.insert(0, str(project_root))
+
+    from modules.core_components import (
+        CORE_EMOTIONS,
+        CONFIRMATION_MODAL_HTML,
+        CONFIRMATION_MODAL_CSS,
+        INPUT_MODAL_HTML,
+        INPUT_MODAL_CSS,
+        show_confirmation_modal_js,
+        show_input_modal_js,
+        handle_save_emotion,
+        handle_delete_emotion
+    )
+    from modules.core_components.ui_components import create_qwen_advanced_params
+    from modules.core_components.constants import (
+        LANGUAGES,
+        CUSTOM_VOICE_SPEAKERS,
+        MODEL_SIZES_CUSTOM,
+        QWEN_GENERATION_DEFAULTS
+    )
+    from modules.core_components.tool_utils import (
+        load_config,
+        save_preference as save_pref_to_file,
+        format_help_html,
+        TRIGGER_HIDE_CSS
+    )
+
+    # Load config with persistent settings
+    user_config = load_config()
+    active_emotions = user_config.get('emotions', CORE_EMOTIONS)
+
+    # Simple mock for create_qwen_advanced_params if not available
+    if not hasattr(create_qwen_advanced_params, '__call__'):
+        def create_qwen_advanced_params(*args, **kwargs):
+            return {}
+
+    OUTPUT_DIR = project_root / "output"
+    MODELS_DIR = project_root / "models"
+    OUTPUT_DIR.mkdir(exist_ok=True)
+
+    def get_trained_models():
+        """Find trained model checkpoints."""
+        models = []
+        if MODELS_DIR.exists():
+            for folder in MODELS_DIR.iterdir():
+                if folder.is_dir():
+                    for checkpoint in folder.glob("checkpoint-*"):
+                        if checkpoint.is_dir():
+                            models.append({
+                                'display_name': f"{folder.name} - {checkpoint.name}",
+                                'path': str(checkpoint),
+                                'speaker_name': folder.name
+                            })
+        return models
+
+    # Stub handlers for standalone testing (actual implementations in handlers section)
+    def generate_custom_voice(*args, **kwargs):
+        return None, "⚠️ Handler not yet connected in standalone mode"
+
+    def generate_with_trained_model(*args, **kwargs):
+        return None, "⚠️ Handler not yet connected in standalone mode"
+
+    shared_state = {
+        'get_trained_models': get_trained_models,
+        'create_qwen_advanced_params': create_qwen_advanced_params,
+        '_user_config': user_config,
+        '_active_emotions': active_emotions,
+        'CUSTOM_VOICE_SPEAKERS': CUSTOM_VOICE_SPEAKERS,
+        'MODEL_SIZES_CUSTOM': MODEL_SIZES_CUSTOM,
+        'LANGUAGES': LANGUAGES,
+        'OUTPUT_DIR': OUTPUT_DIR,
+        'show_input_modal_js': show_input_modal_js,
+        'show_confirmation_modal_js': show_confirmation_modal_js,
+        'generate_custom_voice': generate_custom_voice,
+        'generate_with_trained_model': generate_with_trained_model,
+        'save_emotion_handler': lambda name, intensity, temp, rep_pen, top_p: handle_save_emotion(name, intensity, temp, rep_pen, top_p, user_config, active_emotions),
+        'delete_emotion_handler': lambda confirm_val, emotion_name: handle_delete_emotion(confirm_val, emotion_name, user_config, active_emotions),
+        'save_preference': lambda k, v: save_pref_to_file(user_config, k, v),
+        'play_completion_beep': lambda: print("[Beep] Complete!"),
+        'get_emotion_choices': lambda emotions: sorted(emotions.keys(), key=str.lower),
+        'confirm_trigger': None,
+        'input_trigger': None}
+
+    # Load custom theme
+    theme = gr.themes.Base.load('modules/core_components/theme.json')
+
+    print(f"[*] Output: {OUTPUT_DIR}")
+    print(f"[*] Found {len(get_trained_models())} trained models")
+
+    with gr.Blocks(title="Voice Presets - Standalone", head=CONFIRMATION_MODAL_CSS + INPUT_MODAL_CSS, css=TRIGGER_HIDE_CSS) as app:
+        # Add modal HTML
+        gr.HTML(CONFIRMATION_MODAL_HTML)
+        gr.HTML(INPUT_MODAL_HTML)
+        
+        gr.Markdown("# 🎙️ Voice Presets Tool (Standalone Testing)")
+        gr.Markdown("*Standalone mode with full modal support*")
+
+        # Hidden trigger widgets - visible but hidden via CSS
+        with gr.Row():
+            confirm_trigger = gr.Textbox(label="Confirm Trigger", value="", elem_id="confirm-trigger")
+            input_trigger = gr.Textbox(label="Input Trigger", value="", elem_id="input-trigger")
+        shared_state['confirm_trigger'] = confirm_trigger
+        shared_state['input_trigger'] = input_trigger
+
+        components = VoicePresetsTab.create_tab(shared_state)
+        VoicePresetsTab.setup_events(components, shared_state)
+
+    print("\n✓ Voice Presets UI loaded successfully!")
+    print("   Note: Generate buttons show stub messages - handlers pending implementation")
+    print("[*] Launching on http://127.0.0.1:7863")
+    app.launch(theme=theme, server_port=7863, server_name="127.0.0.1", share=False, inbrowser=False)

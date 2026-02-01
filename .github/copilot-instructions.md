@@ -55,6 +55,7 @@
 modules/
 ├── core_components/          # OUR core app components
 │   ├── emotion_manager.py    # Emotion system
+│   ├── constants.py          # Central constants (models, languages, speakers)
 │   ├── ui_help.py            # Help documentation
 │   ├── confirmation_modal.py # Confirmation modal dialog
 │   └── notification.wav      # Audio notification
@@ -64,6 +65,39 @@ modules/
 ├── vibevoice_asr/            # EXTERNAL: VibeVoice ASR
 └── [new External modules here]
 ```
+
+## Central Constants System
+
+**CRITICAL**: All constants (model sizes, languages, speakers, etc.) are defined in **ONE place only**:
+
+### `modules/core_components/constants.py`
+
+**Single source of truth for:**
+- Model sizes (MODEL_SIZES, MODEL_SIZES_BASE, MODEL_SIZES_CUSTOM, etc.)
+- Languages (LANGUAGES list)
+- Custom voice speakers (CUSTOM_VOICE_SPEAKERS)
+- Voice clone options (VOICE_CLONE_OPTIONS)
+- Generation defaults (QWEN_GENERATION_DEFAULTS, VIBEVOICE_GENERATION_DEFAULTS)
+- Supported models (SUPPORTED_MODELS set)
+- Audio specifications (SAMPLE_RATE, AUDIO_FORMAT, etc.)
+
+**How to use:**
+```python
+from modules.core_components.constants import (
+    LANGUAGES,
+    CUSTOM_VOICE_SPEAKERS,
+    MODEL_SIZES_CUSTOM,
+    QWEN_GENERATION_DEFAULTS
+)
+```
+
+**Why this matters:**
+- ✅ Add a new model/language/speaker in ONE place
+- ✅ Changes automatically propagate everywhere
+- ✅ No duplication = no inconsistencies
+- ✅ Easier maintenance
+
+**NEVER duplicate constants** - always import from `constants.py`
 
 ### Main File Responsibilities ONLY
 - Gradio UI layout structure

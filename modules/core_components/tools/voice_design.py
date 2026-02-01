@@ -3,15 +3,30 @@ Voice Design Tab
 
 Create new voices from natural language descriptions using Qwen3-TTS VoiceDesign.
 """
-
+# Setup path for standalone testing BEFORE imports
+if __name__ == "__main__":
+    import sys
+    from pathlib import Path
+    project_root = Path(__file__).parent.parent.parent.parent
+    sys.path.insert(0, str(project_root))
 import gradio as gr
+import soundfile as sf
+import shutil
+import json
+import torch
+import random
+import tempfile
+from datetime import datetime
+from pathlib import Path
+
 from modules.core_components.tools.base import Tab, TabConfig
 from modules.core_components.ui_components import create_qwen_advanced_params
+from modules.core_components.ai_models.tts_manager import get_tts_manager
 
 
 class VoiceDesignTab(Tab):
     """Voice Design tab implementation."""
-    
+
     config = TabConfig(
         name="Voice Design",
         module_name="tab_voice_design",
@@ -19,16 +34,16 @@ class VoiceDesignTab(Tab):
         enabled=True,
         category="generation"
     )
-    
+
     @classmethod
     def create_tab(cls, shared_state):
         """Create Voice Design tab UI."""
         components = {}
-        
+
         # Get shared utilities
         LANGUAGES = shared_state.get('LANGUAGES', ['Auto'])
         user_config = shared_state.get('user_config', {})
-        
+
         with gr.TabItem("Voice Design"):
             gr.Markdown("Create new voices from natural language descriptions")
 
@@ -86,34 +101,150 @@ class VoiceDesignTab(Tab):
                     )
 
                     components['design_save_btn'] = gr.Button("Save Sample", variant="primary")
-        
+
         return components
-    
+
     @classmethod
     def setup_events(cls, components, shared_state):
         """Wire up Voice Design events."""
-        
-        # Get handler functions
-        generate_voice_design = shared_state.get('generate_voice_design')
+
+        # Get shared utilities and directories
         show_input_modal_js = shared_state.get('show_input_modal_js')
         save_preference = shared_state.get('save_preference')
-        
-        if not generate_voice_design:
-            return
-        
-        def generate_voice_design_with_checkbox(text, language, instruct, seed, save_to_output,
-                                               do_sample, temperature, top_k, top_p, repetition_penalty, max_new_tokens,
-                                               progress=gr.Progress()):
-            return generate_voice_design(text, language, instruct, seed,
-                                        do_sample, temperature, top_k, top_p, repetition_penalty, max_new_tokens,
-                                        progress=progress, save_to_output=save_to_output)
+        input_trigger = shared_state.get('input_trigger')
+        SAMPLES_DIR = shared_state.get('SAMPLES_DIR')
+        OUTPUT_DIR = shared_state.get('OUTPUT_DIR')
+        play_completion_beep = shared_state.get('play_completion_beep')
 
+        # Get TTS manager (singleton)
+        tts_manager = get_tts_manager()
+
+        def generate_voice_design_handler(text_to_generate, language, instruct, seed, save_to_output,
+                                         do_sample, temperature, top_k, top_p, repetition_penalty, max_new_tokens,
+                                         progress=gr.Progress()):
+            """Generate audio using voice design with natural language instructions."""
+            if not text_to_generate or not text_to_generate.strip():
+                return None, "❌ Please enter text to generate."
+
+            if not instruct or not instruct.strip():
+                return None, "❌ Please enter voice design instructions."
+
+            try:
+                # Set the seed for reproducibility
+                seed = int(seed) if seed is not None else -1
+                if seed < 0:
+                    seed = random.randint(0, 2147483647)
+
+                torch.manual_seed(seed)
+                if torch.cuda.is_available():
+                    torch.cuda.manual_seed_all(seed)
+                seed_msg = f"Seed: {seed}"
+
+                progress(0.1, desc="Loading VoiceDesign model...")
+
+                # Call manager to generate
+                audio_data, sr = tts_manager.generate_voice_design(
+                    text=text_to_generate.strip(),
+                    language=language if language != "Auto" else "Auto",
+                    instruct=instruct.strip(),
+                    do_sample=do_sample,
+                    temperature=temperature,
+                    top_k=top_k,
+                    top_p=top_p,
+                    repetition_penalty=repetition_penalty,
+                    max_new_tokens=max_new_tokens
+                )
+
+                progress(0.8, desc=f"Saving audio ({'output' if save_to_output else 'temp'})...")
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+                # Ensure audio is numpy array (move to CPU if tensor)
+                if hasattr(audio_data, "cpu"):
+                    audio_data = audio_data.cpu().numpy()
+                elif hasattr(audio_data, "numpy"):
+                    audio_data = audio_data.numpy()
+
+                if save_to_output:
+                    out_file = OUTPUT_DIR / f"voice_design_{timestamp}.wav"
+                else:
+                    # Use temp directory
+                    fd, temp_path = tempfile.mkstemp(suffix=".wav", prefix=f"voice_design_{timestamp}_")
+                    import os
+                    os.close(fd)
+                    out_file = Path(temp_path)
+
+                try:
+                    # Ensure directory exists
+                    if save_to_output and not out_file.parent.exists():
+                        out_file.parent.mkdir(parents=True, exist_ok=True)
+                    sf.write(str(out_file), audio_data, sr)
+                except Exception as save_err:
+                    print(f"[!] Error saving to {out_file}: {save_err}. Trying fallback...")
+                    # Fallback to system temp
+                    fd, temp_path = tempfile.mkstemp(suffix=".wav", prefix=f"voice_design_{timestamp}_")
+                    import os
+                    os.close(fd)
+                    out_file = Path(temp_path)
+                    sf.write(str(out_file), audio_data, sr)
+
+                progress(1.0, desc="Done!")
+                if play_completion_beep:
+                    play_completion_beep()
+                return str(out_file), f"Voice design generated. Save to samples to keep.\n{seed_msg}"
+
+            except Exception as e:
+                return None, f"❌ Error generating audio: {str(e)}"
+
+        def save_designed_voice(audio, design_name):
+            """Save a designed voice as a sample (tool-specific implementation)."""
+            if not audio:
+                return "❌ No audio to save"
+
+            if not design_name or not design_name.strip():
+                return "❌ Please enter a name"
+
+            try:
+                import soundfile as sf
+                import shutil
+                import json
+                from datetime import datetime
+
+                # Clean the name
+                safe_name = "".join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in design_name.strip())
+
+                # Copy audio file to samples folder
+                wav_path = SAMPLES_DIR / f"{safe_name}.wav"
+                json_path = SAMPLES_DIR / f"{safe_name}.json"
+
+                # If audio is a path, copy it
+                if isinstance(audio, str):
+                    shutil.copy(audio, wav_path)
+                else:
+                    # If audio is data, save it
+                    sf.write(str(wav_path), audio, 24000)
+
+                # Create metadata
+                metadata = {
+                    "name": safe_name,
+                    "text": "Voice design sample",
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+
+                with open(json_path, 'w', encoding='utf-8') as f:
+                    json.dump(metadata, f, indent=2)
+
+                return f"✓ Saved as sample: {safe_name}"
+
+            except Exception as e:
+                return f"❌ Error saving: {str(e)}"
+
+        # Wire generate button
         components['design_generate_btn'].click(
-            generate_voice_design_with_checkbox,
+            generate_voice_design_handler,
             inputs=[components['design_text_input'], components['design_language'], components['design_instruct_input'],
-                   components['design_seed'], components['save_to_output_checkbox'],
-                   components['do_sample'], components['temperature'], components['top_k'],
-                   components['top_p'], components['repetition_penalty'], components['max_new_tokens']],
+                    components['design_seed'], components['save_to_output_checkbox'],
+                    components['do_sample'], components['temperature'], components['top_k'],
+                    components['top_p'], components['repetition_penalty'], components['max_new_tokens']],
             outputs=[components['design_output_audio'], components['design_status']]
         )
 
@@ -129,7 +260,32 @@ class VoiceDesignTab(Tab):
                 context="save_design_"
             )
         )
-        
+
+        # Handle save designed voice input modal submission
+        if input_trigger:
+            def handle_save_design_input(input_value, audio):
+                """Process input modal submission for saving designed voice."""
+                # Context filtering: only process if this is our context
+                if not input_value or not input_value.startswith("save_design_"):
+                    return gr.update()
+
+                # Extract design name from context prefix
+                # Format: "save_design_<name>_<timestamp>"
+                parts = input_value.split("_")
+                if len(parts) >= 3:
+                    # Remove context prefix and timestamp (last part)
+                    design_name = "_".join(parts[2:-1])
+                    status = save_designed_voice(audio, design_name)
+                    return status
+
+                return gr.update()
+
+            input_trigger.change(
+                handle_save_design_input,
+                inputs=[input_trigger, components['design_output_audio']],
+                outputs=[components['design_status']]
+            )
+
         # Save language preference
         if save_preference:
             components['design_language'].change(
@@ -141,3 +297,79 @@ class VoiceDesignTab(Tab):
 
 # Export for registry
 get_tab_class = lambda: VoiceDesignTab
+
+
+if __name__ == "__main__":
+    """Standalone testing of Voice Design tool."""
+    print("[*] Starting Voice Design Tool - Standalone Mode")
+
+    from pathlib import Path
+    import sys
+
+    # Add project root to path
+    project_root = Path(__file__).parent.parent.parent.parent
+    sys.path.insert(0, str(project_root))
+
+    # Import constants and modal components
+    from modules.core_components.constants import LANGUAGES, QWEN_GENERATION_DEFAULTS
+    from modules.core_components import (
+        INPUT_MODAL_HTML,
+        INPUT_MODAL_CSS,
+        show_input_modal_js
+    )
+    from modules.core_components.tool_utils import (
+        load_config,
+        save_preference as save_pref_to_file,
+        TRIGGER_HIDE_CSS
+    )
+    
+    # Load config
+    user_config = load_config()
+    
+    # Setup shared_state with modal support
+    shared_state = {
+        # Constants
+        'LANGUAGES': LANGUAGES,
+        'user_config': user_config,
+
+        # Directories
+        'OUTPUT_DIR': project_root / "output",
+        'SAMPLES_DIR': project_root / "samples",
+
+        # Modal functions (real)
+        'show_input_modal_js': show_input_modal_js,
+        'save_preference': lambda k, v: save_pref_to_file(user_config, k, v),
+        'play_completion_beep': lambda: print("[Beep] Generation complete!"),
+
+        # Trigger (will be set below)
+        'input_trigger': None,
+    }
+
+    # Ensure directories exist
+    shared_state['OUTPUT_DIR'].mkdir(exist_ok=True)
+    shared_state['SAMPLES_DIR'].mkdir(exist_ok=True)
+
+    print(f"[*] Output: {shared_state['OUTPUT_DIR']}")
+    print(f"[*] Samples: {shared_state['SAMPLES_DIR']}")
+    
+    # Load custom theme
+    theme = gr.themes.Base.load('modules/core_components/theme.json')
+
+    # Create standalone UI with modal support
+    with gr.Blocks(title="Voice Design - Standalone", head=INPUT_MODAL_CSS, css=TRIGGER_HIDE_CSS) as app:
+        # Add modal HTML
+        gr.HTML(INPUT_MODAL_HTML)
+        
+        gr.Markdown("# 🎨 Voice Design Tool (Standalone Testing)")
+        gr.Markdown("*Standalone mode with full modal support*")
+
+        # Hidden trigger for modal - visible but hidden via CSS
+        input_trigger = gr.Textbox(label="Input Trigger", value="", elem_id="input-trigger")
+        shared_state['input_trigger'] = input_trigger
+
+        # Create the tool
+        components = VoiceDesignTab.create_tab(shared_state)
+        VoiceDesignTab.setup_events(components, shared_state)
+
+    print("[*] Launching on http://127.0.0.1:7861")
+    app.launch(theme=theme, server_port=7861, server_name="127.0.0.1", share=False, inbrowser=True)
