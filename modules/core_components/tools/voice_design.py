@@ -317,7 +317,7 @@ if __name__ == "__main__":
         INPUT_MODAL_CSS,
         show_input_modal_js
     )
-    from modules.core_components.tool_utils import (
+    from modules.core_components.tools import (
         load_config,
         save_preference as save_pref_to_file,
         TRIGGER_HIDE_CSS

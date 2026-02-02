@@ -7,7 +7,7 @@ Train custom voice models using finetuning datasets.
 import gradio as gr
 from textwrap import dedent
 from modules.core_components.tools.base import Tab, TabConfig
-from modules.core_components.tool_utils import format_help_html
+# format_help_html comes from shared_state
 from pathlib import Path
 
 
@@ -28,6 +28,7 @@ class TrainModelTab(Tab):
         components = {}
         
         # Get helper functions and config
+        format_help_html = shared_state['format_help_html']
         get_dataset_folders = shared_state['get_dataset_folders']
         get_dataset_files = shared_state['get_dataset_files']
         get_trained_model_names = shared_state['get_trained_model_names']

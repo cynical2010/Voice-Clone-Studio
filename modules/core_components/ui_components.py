@@ -20,15 +20,17 @@ def create_qwen_advanced_params(
     include_emotion=False,
     initial_emotion="",
     initial_intensity=1.0,
-    visible=True
+    visible=True,
+    emotion_visible=True,
+    shared_state=None
 ):
     """
     Reusable Qwen advanced parameters accordion.
-    
+
     Each call creates independent component instances for the tab.
-    
+
     Args:
-        emotions_dict: Dictionary of emotion presets (optional)
+        emotions_dict: Dictionary of emotion presets (optional, for initial choices only)
         initial_do_sample: Default sampling toggle
         initial_temperature: Default temperature value
         initial_top_k: Default top_k value
@@ -39,18 +41,20 @@ def create_qwen_advanced_params(
         initial_emotion: Pre-selected emotion
         initial_intensity: Starting intensity multiplier
         visible: Make accordion visible
-    
+        emotion_visible: Make emotion controls visible (only used if include_emotion=True)
+        shared_state: Shared state dict (required if include_emotion=True, must have '_active_emotions' key)
+
     Returns:
         dict with component references and helper function for event binding
     """
     components = {}
-    
+
     with gr.Accordion("Advanced Parameters", open=False, visible=visible):
         # Emotion section (optional)
         if include_emotion:
             emotion_choices = get_emotion_choices(emotions_dict) if emotions_dict else []
-            
-            with gr.Row():
+
+            with gr.Row(visible=emotion_visible) as emotion_row:
                 components['emotion_preset'] = gr.Dropdown(
                     choices=emotion_choices,
                     value=initial_emotion,
@@ -68,13 +72,16 @@ def create_qwen_advanced_params(
                     scale=1
                 )
             
+            components['emotion_row'] = emotion_row
+
             # Emotion management buttons
-            with gr.Row():
+            with gr.Row(visible=emotion_visible) as emotion_buttons_row:
                 components['save_emotion_btn'] = gr.Button("Save", size="sm", scale=1)
                 components['delete_emotion_btn'] = gr.Button("Delete", size="sm", scale=1)
             
+            components['emotion_buttons_row'] = emotion_buttons_row
             components['emotion_save_name'] = gr.Textbox(visible=False, value="")
-        
+
         # Standard parameters
         with gr.Row():
             components['do_sample'] = gr.Checkbox(
@@ -90,25 +97,7 @@ def create_qwen_advanced_params(
                 label="Temperature",
                 info="Sampling temperature"
             )
-        
-        with gr.Row():
-            components['top_k'] = gr.Slider(
-                minimum=0,
-                maximum=100,
-                value=initial_top_k,
-                step=1,
-                label="Top-K",
-                info="Keep only top K tokens"
-            )
-            components['top_p'] = gr.Slider(
-                minimum=0.0,
-                maximum=1.0,
-                value=initial_top_p,
-                step=0.05,
-                label="Top-P (Nucleus)",
-                info="Cumulative probability threshold"
-            )
-        
+
         with gr.Row():
             components['repetition_penalty'] = gr.Slider(
                 minimum=1.0,
@@ -118,6 +107,26 @@ def create_qwen_advanced_params(
                 label="Repetition Penalty",
                 info="Penalize repeated tokens"
             )
+
+            components['top_p'] = gr.Slider(
+                minimum=0.0,
+                maximum=1.0,
+                value=initial_top_p,
+                step=0.05,
+                label="Top-P (Nucleus)",
+                info="Cumulative probability threshold"
+            )
+
+        with gr.Row():
+            components['top_k'] = gr.Slider(
+                minimum=0,
+                maximum=100,
+                value=initial_top_k,
+                step=1,
+                label="Top-K",
+                info="Keep only top K tokens"
+            )
+
             components['max_new_tokens'] = gr.Slider(
                 minimum=512,
                 maximum=4096,
@@ -126,13 +135,18 @@ def create_qwen_advanced_params(
                 label="Max New Tokens",
                 info="Maximum codec tokens to generate"
             )
-    
+
     # Helper function to update sliders when emotion changes
-    if include_emotion and emotions_dict:
+    if include_emotion:
+        if not shared_state or '_active_emotions' not in shared_state:
+            raise ValueError("shared_state with '_active_emotions' key is required when include_emotion=True")
+        
         def update_from_emotion(emotion_name, intensity):
             """Update slider values based on selected emotion."""
+            # Read current emotions dynamically from shared_state
+            current_emotions = shared_state['_active_emotions']
             temp, top_p, penalty, _ = calculate_emotion_values(
-                emotions_dict,
+                current_emotions,
                 emotion_name,
                 intensity,
                 baseline_temp=initial_temperature,
@@ -140,9 +154,9 @@ def create_qwen_advanced_params(
                 baseline_penalty=initial_repetition_penalty
             )
             return temp, top_p, penalty
-        
+
         components['update_from_emotion'] = update_from_emotion
-    
+
     return components
 
 
@@ -158,7 +172,7 @@ def create_vibevoice_advanced_params(
 ):
     """
     Reusable VibeVoice advanced parameters accordion.
-    
+
     Args:
         initial_num_steps: Default inference steps
         initial_cfg_scale: Default CFG scale
@@ -168,12 +182,12 @@ def create_vibevoice_advanced_params(
         initial_top_p: Default top_p
         initial_repetition_penalty: Default penalty
         visible: Make accordion visible
-    
+
     Returns:
         dict with component references
     """
     components = {}
-    
+
     with gr.Accordion("Advanced Parameters", open=False, visible=visible):
         with gr.Row():
             components['num_steps'] = gr.Slider(
@@ -192,7 +206,7 @@ def create_vibevoice_advanced_params(
                 label="CFG Scale",
                 info="Controls audio adherence to voice prompt"
             )
-        
+
         gr.Markdown("**Stochastic Sampling Parameters**")
         with gr.Row():
             components['do_sample'] = gr.Checkbox(
@@ -200,7 +214,7 @@ def create_vibevoice_advanced_params(
                 value=initial_do_sample,
                 info="Enable stochastic sampling (default: False)"
             )
-        
+
         with gr.Row():
             components['repetition_penalty'] = gr.Slider(
                 minimum=1.0,
@@ -218,7 +232,7 @@ def create_vibevoice_advanced_params(
                 label="Temperature",
                 info="Sampling temperature"
             )
-        
+
         with gr.Row():
             components['top_k'] = gr.Slider(
                 minimum=0,
@@ -236,7 +250,7 @@ def create_vibevoice_advanced_params(
                 label="Top-P (Nucleus)",
                 info="Cumulative probability threshold"
             )
-    
+
     return components
 
 
@@ -251,9 +265,9 @@ def create_qwen_emotion_controls(
 ):
     """
     Standalone emotion preset + intensity controls that update sliders.
-    
+
     Use this when you want emotion controls separate from advanced parameters.
-    
+
     Args:
         emotions_dict: Dictionary of emotion presets
         initial_emotion: Pre-selected emotion
@@ -262,13 +276,13 @@ def create_qwen_emotion_controls(
         baseline_top_p: Default top_p for calculations
         baseline_penalty: Default penalty for calculations
         visible: Initial visibility
-    
+
     Returns:
         dict with emotion components and update helper function
     """
     components = {}
     emotion_choices = get_emotion_choices(emotions_dict) if emotions_dict else []
-    
+
     with gr.Row(visible=visible) as emotion_row:
         components['emotion_preset'] = gr.Dropdown(
             choices=emotion_choices,
@@ -286,17 +300,17 @@ def create_qwen_emotion_controls(
             info="Emotion strength (0=none, 2=extreme)",
             scale=1
         )
-    
+
     components['emotion_row'] = emotion_row
-    
+
     # Emotion management buttons
     with gr.Row(visible=visible) as emotion_buttons_row:
         components['save_emotion_btn'] = gr.Button("Save", size="sm", scale=1)
         components['delete_emotion_btn'] = gr.Button("Delete", size="sm", scale=1)
-    
+
     components['emotion_buttons_row'] = emotion_buttons_row
     components['emotion_save_name'] = gr.Textbox(visible=False, value="")
-    
+
     # Helper function
     def update_from_emotion(emotion_name, intensity):
         """Update slider values based on selected emotion."""
@@ -309,9 +323,9 @@ def create_qwen_emotion_controls(
             baseline_penalty=baseline_penalty
         )
         return temp, top_p, penalty
-    
+
     components['update_from_emotion'] = update_from_emotion
-    
+
     return components
 
 
@@ -322,14 +336,14 @@ def create_emotion_intensity_slider(
 ):
     """
     Standalone emotion intensity slider (for auto-detected emotions).
-    
+
     Use when emotion is auto-detected and user can only adjust intensity.
-    
+
     Args:
         initial_intensity: Starting intensity value
         label: Slider label
         visible: Initial visibility
-    
+
     Returns:
         gr.Slider component
     """
@@ -354,7 +368,7 @@ def create_pause_controls(
 ):
     """
     Reusable pause control accordion for conversation tabs.
-    
+
     Args:
         initial_linebreak: Default pause between lines
         initial_period: Default pause after period
@@ -362,12 +376,12 @@ def create_pause_controls(
         initial_question: Default pause after question
         initial_hyphen: Default pause after hyphen
         visible: Make accordion visible
-    
+
     Returns:
         dict with component references
     """
     components = {}
-    
+
     with gr.Accordion("Pause Controls", open=False, visible=visible):
         with gr.Column():
             components['pause_linebreak'] = gr.Slider(
@@ -378,7 +392,7 @@ def create_pause_controls(
                 label="Pause Between Lines",
                 info="Silence between each speaker turn"
             )
-            
+
             with gr.Row():
                 components['pause_period'] = gr.Slider(
                     minimum=0.0,
@@ -396,7 +410,7 @@ def create_pause_controls(
                     label="After Comma (,)",
                     info="Pause after commas"
                 )
-            
+
             with gr.Row():
                 components['pause_question'] = gr.Slider(
                     minimum=0.0,
@@ -414,5 +428,5 @@ def create_pause_controls(
                     label="After Hyphen (-)",
                     info="Pause after hyphens"
                 )
-    
+
     return components

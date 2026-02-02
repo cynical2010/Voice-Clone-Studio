@@ -200,8 +200,8 @@ CONFIRMATION_MODAL_HTML = """
     <h3 id="confirm-modal-title">Confirm Action</h3>
     <p id="confirm-modal-message">Are you sure you want to continue?</p>
     <div class="modal-actions">
-      <button class="modal-btn" id="confirm-modal-cancel-btn" onclick="confirmModalAction('cancel', this)">Cancel</button>
       <button class="modal-btn danger" id="confirm-modal-action-btn" onclick="confirmModalAction('confirm', this)">Confirm</button>
+      <button class="modal-btn" id="confirm-modal-cancel-btn" onclick="confirmModalAction('cancel', this)">Cancel</button>
     </div>
   </div>
 </div>

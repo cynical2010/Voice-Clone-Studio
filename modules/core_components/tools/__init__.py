@@ -3,9 +3,14 @@ Tool modules registry and loader.
 
 This module manages all available tools and their configurations.
 Tools can be enabled/disabled through configuration.
+
+Also provides shared utilities for standalone tool testing.
 """
 
-from typing import Dict, List, Any
+import json
+import markdown
+import platform
+from pathlib import Path
 from modules.core_components.tools.base import TabConfig, Tab
 
 # Import all tool modules here
@@ -20,54 +25,61 @@ from modules.core_components.tools import finetune_dataset
 from modules.core_components.tools import train_model
 from modules.core_components.tools import settings
 
-# Registry of all available tools
+# Registry of available tools
 # Format: 'tool_name': (module, TabConfig)
-ALL_TABS: Dict[str, tuple] = {
+# TODO: Add other tools as they are refactored to be self-contained
+ALL_TABS = {
     'voice_clone': (voice_clone, voice_clone.VoiceCloneTab.config),
     'voice_presets': (voice_presets, voice_presets.VoicePresetsTab.config),
-    'conversation': (conversation, conversation.ConversationTab.config),
-    'voice_design': (voice_design, voice_design.VoiceDesignTab.config),
-    'prep_samples': (prep_samples, prep_samples.PrepSamplesTab.config),
-    'output_history': (output_history, output_history.OutputHistoryTab.config),
-    'finetune_dataset': (finetune_dataset, finetune_dataset.FinetuneDatasetTab.config),
-    'train_model': (train_model, train_model.TrainModelTab.config),
-    'settings': (settings, settings.SettingsTab.config),
-    'help': (help, help.HelpGuideTab.config),
 }
 
+# # Format: 'tool_name': (module, TabConfig)
+# ALL_TABS = {
+#     'voice_clone': (voice_clone, voice_clone.VoiceCloneTab.config),
+#     'voice_presets': (voice_presets, voice_presets.VoicePresetsTab.config),
+#     'conversation': (conversation, conversation.ConversationTab.config),
+#     'voice_design': (voice_design, voice_design.VoiceDesignTab.config),
+#     'prep_samples': (prep_samples, prep_samples.PrepSamplesTab.config),
+#     'output_history': (output_history, output_history.OutputHistoryTab.config),
+#     'finetune_dataset': (finetune_dataset, finetune_dataset.FinetuneDatasetTab.config),
+#     'train_model': (train_model, train_model.TrainModelTab.config),
+#     'settings': (settings, settings.SettingsTab.config),
+#     'help': (help, help.HelpGuideTab.config),
+# }
 
-def get_tab_registry() -> Dict[str, TabConfig]:
+
+def get_tab_registry():
     """Get registry of all available tabs and their configs."""
     return {name: config for name, (_, config) in ALL_TABS.items()}
 
 
-def get_enabled_tabs(user_config: Dict[str, Any]) -> List[tuple]:
+def get_enabled_tabs(user_config):
     """
     Get list of enabled tab modules based on user config.
-    
+
     Args:
         user_config: User configuration dict
-    
+
     Returns:
         List of (tab_module, TabConfig) tuples for enabled tabs
     """
     # Get tab settings from config (with defaults)
     tab_settings = user_config.get("enabled_tabs", {})
-    
+
     enabled_tabs = []
     for name, (module, config) in ALL_TABS.items():
         # Default to enabled if not specified
         is_enabled = tab_settings.get(config.name, config.enabled)
         if is_enabled:
             enabled_tabs.append((module, config))
-    
+
     return enabled_tabs
 
 
-def save_tab_settings(user_config: Dict[str, Any], tab_name: str, enabled: bool):
+def save_tab_settings(user_config, tab_name, enabled):
     """
     Save tab enabled/disabled setting.
-    
+
     Args:
         user_config: User configuration dict (will be modified)
         tab_name: Tab name
@@ -78,19 +90,19 @@ def save_tab_settings(user_config: Dict[str, Any], tab_name: str, enabled: bool)
     user_config["enabled_tabs"][tab_name] = enabled
 
 
-def create_enabled_tabs(shared_state: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+def create_enabled_tabs(shared_state):
     """
     Create UI for all enabled tabs.
-    
+
     Args:
-        shared_state: Shared globals (active_emotions, user_config, helpers)
-    
+        shared_state: Shared globals (must include: _user_config, _active_emotions, and all helper functions)
+
     Returns:
         Dict mapping tab module to component references
     """
     user_config = shared_state.get('user_config', {})
     enabled_tabs = get_enabled_tabs(user_config)
-    
+
     tab_components = {}
     for tab_module, config in enabled_tabs:
         try:
@@ -107,7 +119,7 @@ def create_enabled_tabs(shared_state: Dict[str, Any]) -> Dict[str, Dict[str, Any
                         break
                 if not tab_class:
                     raise ValueError(f"No Tab class found in module {tab_module}")
-            
+
             components = tab_class.create_tab(shared_state)
             tab_components[config.name] = {
                 'module': tab_module,
@@ -117,14 +129,14 @@ def create_enabled_tabs(shared_state: Dict[str, Any]) -> Dict[str, Dict[str, Any
             }
         except Exception as e:
             print(f"Warning: Failed to create tab '{config.name}': {e}")
-    
+
     return tab_components
 
 
-def setup_tab_events(tab_components: Dict[str, Dict[str, Any]], shared_state: Dict[str, Any]):
+def setup_tab_events(tab_components, shared_state):
     """
     Set up event handlers for all tabs.
-    
+
     Args:
         tab_components: Dictionary returned by create_enabled_tabs()
         shared_state: Shared globals
@@ -133,7 +145,7 @@ def setup_tab_events(tab_components: Dict[str, Dict[str, Any]], shared_state: Di
         try:
             tab_class = tab_info['tab_class']
             components = tab_info['components']
-            
+
             # Setup events
             tab_class.setup_events(components, shared_state)
         except Exception as e:
@@ -148,4 +160,531 @@ __all__ = [
     'save_tab_settings',
     'create_enabled_tabs',
     'setup_tab_events',
+    'load_config',
+    'save_config',
+    'save_preference',
+    'format_help_html',
+    'play_completion_beep',
+    'get_sample_choices',
+    'get_available_samples',
+    'get_prompt_cache_path',
+    'get_or_create_voice_prompt_standalone',
+    'build_shared_state',
+    'run_tool_standalone',
+    'SHARED_CSS',
+    'TRIGGER_HIDE_CSS',
 ]
+
+
+# ============================================================================
+# Shared utilities for standalone tool testing
+# ============================================================================
+
+# Config file path (relative to project root)
+# Find project root by searching upward for voice_clone_studio.py
+def _find_project_root():
+    """Find project root by searching upward for voice_clone_studio.py."""
+    current = Path(__file__).parent
+    for _ in range(10):  # Limit search depth
+        if (current / "voice_clone_studio.py").exists():
+            return current / "config.json"
+        current = current.parent
+    # Fallback to best guess (4 levels up from tools/__init__.py)
+    return Path(__file__).parent.parent.parent.parent / "config.json"
+
+CONFIG_FILE = _find_project_root()
+
+# Shared CSS for all tools
+# - Hides trigger widgets used by modal system
+# - Styles file list groups for prep_samples, finetune_dataset, etc.
+SHARED_CSS = """
+#confirm-trigger {
+    display: none !important;
+}
+#input-trigger {
+    display: none !important;
+}
+#finetune-files-group > div {
+    display: grid !important;
+}
+#finetune-files-container {
+    max-height: 400px;
+    overflow-y: auto;
+}
+#finetune-files-group label {
+    background: none !important;
+    border: none !important;
+    padding: 4px 8px !important;
+    margin: 2px 0 !important;
+    box-shadow: none !important;
+}
+#finetune-files-group label:hover {
+    background: rgba(255, 255, 255, 0.05) !important;
+}
+#output-files-group > div {
+    display: grid !important;
+}
+#output-files-container {
+    max-height: 800px;
+    overflow-y: auto;
+}
+#output-files-group label {
+    background: none !important;
+    border: none !important;
+    padding: 4px 8px !important;
+    margin: 2px 0 !important;
+    box-shadow: none !important;
+}
+#output-files-group label:hover {
+    background: rgba(255, 255, 255, 0.05) !important;
+}
+"""
+
+# Alias for backward compatibility
+TRIGGER_HIDE_CSS = SHARED_CSS
+
+
+def load_config():
+    """Load user preferences from config file.
+
+    Returns:
+        dict: User configuration with defaults
+    """
+    default_config = {
+        "transcribe_model": "Whisper",
+        "tts_base_size": "Large",
+        "custom_voice_size": "Large",
+        "voice_clone_model": "Qwen3 - Large",
+        "language": "Auto",
+        "conv_pause_duration": 0.5,
+        "whisper_language": "Auto-detect",
+        "low_cpu_mem_usage": False,
+        "attention_mechanism": "auto",
+        "offline_mode": False,
+        "browser_notifications": True,
+        "samples_folder": "samples",
+        "output_folder": "output",
+        "datasets_folder": "datasets",
+        "temp_folder": "temp",
+        "models_folder": "models",
+        "trained_models_folder": "models",
+        "emotions": None,
+        "conv_model_type": "Qwen CustomVoice",
+        "conv_model_size": "Large",
+        "conv_base_model_size": "Large",
+        "vibevoice_model_size": "Small",
+        "conv_pause_linebreak": 0.5,
+        "conv_pause_period": 0.3,
+        "conv_pause_comma": 0.2,
+        "conv_pause_question": 0.4,
+        "conv_pause_hyphen": 0.15
+    }
+
+    try:
+        if CONFIG_FILE.exists():
+            with open(CONFIG_FILE, 'r') as f:
+                saved_config = json.load(f)
+                # Merge with defaults to handle new settings
+                default_config.update(saved_config)
+        else:
+            # Create config file with defaults if it doesn't exist
+            CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(CONFIG_FILE, 'w') as f:
+                json.dump(default_config, f, indent=2)
+            print(f"Created new config file: {CONFIG_FILE}")
+    except Exception as e:
+        print(f"Warning: Could not load config: {e}")
+
+    # Initialize emotions if not present (first launch or corrupted config)
+    if not default_config.get("emotions"):
+        from modules.core_components import CORE_EMOTIONS
+        # Sort alphabetically (case-insensitive)
+        default_config["emotions"] = dict(sorted(CORE_EMOTIONS.items(), key=lambda x: x[0].lower()))
+        # Save config with emotions
+        try:
+            with open(CONFIG_FILE, 'w') as f:
+                json.dump(default_config, f, indent=2)
+            print("Initialized emotions in config")
+        except Exception as e:
+            print(f"Warning: Could not save initial emotions: {e}")
+
+    return default_config
+
+
+def save_config(config, key=None, value=None):
+    """Save user preferences to config file.
+
+    Optionally update a single preference before saving.
+
+    Args:
+        config: Dictionary of user preferences
+        key: Optional - preference key to update before saving
+        value: Optional - preference value to set
+    """
+    if key is not None:
+        config[key] = value
+
+    try:
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(config, f, indent=2)
+    except Exception as e:
+        print(f"Warning: Could not save config: {e}")
+
+
+def format_help_html(markdown_text, height="70vh"):
+    """Convert markdown to HTML with scrollable container styling that matches Gradio components.
+
+    Args:
+        markdown_text: Markdown content to convert
+        height: CSS height value (default: "70vh")
+    """
+    html_content = markdown.markdown(
+        markdown_text,
+        extensions=['fenced_code', 'tables', 'nl2br']
+    )
+    return f"""
+    <div style="
+        width: 100%;
+        max-height: {height};
+        overflow-y: auto;
+        box-sizing: border-box;
+        color: var(--block-label-text-color);
+        font-size: var(--block-text-size);
+        font-family: var(--font);
+        line-height: 1.6;
+    ">
+        {html_content}
+    </div>
+    """
+
+# Audio notification helper
+def play_completion_beep():
+    """Play audio notification when generation completes (uses notification.wav file)."""
+    try:
+        # Check if notifications are enabled in settings
+        config = load_config()
+        if not config.get("browser_notifications", True):
+            return  # User disabled notifications
+
+        # Print completion message to console
+        print("\n=== Generation Complete! ===\n", flush=True)
+
+        # Play notification sound from audio file
+        # Path is relative to tools/__init__.py -> go up to core_components/
+        notification_path = Path(__file__).parent.parent / "notification.wav"
+
+        if notification_path.exists():
+            try:
+                if platform.system() == "Windows":
+                    # Windows: Use winsound.PlaySound with audio file (synchronous to ensure it plays)
+                    import winsound
+                    winsound.PlaySound(str(notification_path), winsound.SND_FILENAME)
+                elif platform.system() == "Darwin":
+                    # macOS: Use afplay
+                    import subprocess
+                    subprocess.Popen(["afplay", str(notification_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                else:
+                    # Linux: Try aplay (ALSA), fallback to paplay (PulseAudio), fail silently if neither exists
+                    import subprocess
+                    try:
+                        subprocess.Popen(["aplay", "-q", str(notification_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    except FileNotFoundError:
+                        try:
+                            subprocess.Popen(["paplay", str(notification_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        except FileNotFoundError:
+                            pass  # No audio player available, fail silently
+            except Exception:
+                # Fail silently for notification beeps
+                pass
+        else:
+            # Notification file missing, use ASCII bell
+            print('\a', end='', flush=True)
+    except Exception as outer_e:
+        # Final fallback - at least print the message
+        try:
+            print("\n=== Generation Complete! ===\n", flush=True)
+            print(f"(Notification error: {outer_e})", flush=True)
+        except:
+            pass
+
+
+# ===== Sample Management Helpers (Voice Clone & related tools) =====
+
+def get_sample_choices():
+    """Get list of sample names for dropdown."""
+    import json
+    from pathlib import Path
+    project_root = Path(__file__).parent.parent.parent.parent
+    SAMPLES_DIR = project_root / "samples"
+
+    samples = []
+    for json_file in SAMPLES_DIR.glob("*.json"):
+        try:
+            with open(json_file, 'r', encoding='utf-8') as f:
+                meta = json.load(f)
+                samples.append(meta.get("name", json_file.stem))
+        except:
+            samples.append(json_file.stem)
+    return samples if samples else ["(No samples found)"]
+
+def get_available_samples():
+    """Get full sample data (wav path, text, metadata)."""
+    import json
+    from pathlib import Path
+    project_root = Path(__file__).parent.parent.parent.parent
+    SAMPLES_DIR = project_root / "samples"
+
+    samples = []
+    for json_file in SAMPLES_DIR.glob("*.json"):
+        wav_file = json_file.with_suffix(".wav")
+        if wav_file.exists():
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    meta = json.load(f)
+                samples.append({
+                    "name": meta.get("name", json_file.stem),
+                    "wav_path": str(wav_file),
+                    "ref_text": meta.get("text", ""),
+                    "meta": meta
+                })
+            except:
+                pass
+    return samples
+
+def get_prompt_cache_path(sample_name, model_size):
+    """Get cache path for voice prompt."""
+    from pathlib import Path
+    project_root = Path(__file__).parent.parent.parent.parent
+    return project_root / "temp" / f"{sample_name}_{model_size}_prompt.pt"
+
+def get_or_create_voice_prompt_standalone(model, sample_name, wav_path, ref_text, model_size, progress_callback=None):
+    """Mock implementation for standalone - just return not cached."""
+    return None, False
+
+
+def build_shared_state(user_config, active_emotions, directories, constants, managers=None, confirm_trigger=None, input_trigger=None):
+    """
+    Build shared_state dictionary for main app or standalone testing.
+
+    Centralizes all the boilerplate for creating shared_state with proper structure.
+
+    Args:
+        user_config: User configuration dict
+        active_emotions: Active emotions dict
+        directories: Dict with keys: OUTPUT_DIR, SAMPLES_DIR, DATASETS_DIR, TEMP_DIR
+        constants: Dict with keys: LANGUAGES, CUSTOM_VOICE_SPEAKERS, MODEL_SIZES_*, etc.
+        managers: Optional dict with keys: tts_manager, asr_manager (for main app)
+        confirm_trigger: Gradio component for confirmation modal
+        input_trigger: Gradio component for input modal
+
+    Returns:
+        Dict ready to pass to create_enabled_tabs() and setup_tab_events()
+    """
+    from modules.core_components import (
+        show_confirmation_modal_js,
+        show_input_modal_js,
+        get_emotion_choices,
+        calculate_emotion_values,
+        handle_save_emotion,
+        handle_delete_emotion
+    )
+    from modules.core_components.ui_components import (
+        create_qwen_advanced_params,
+        create_vibevoice_advanced_params,
+        create_emotion_intensity_slider,
+        create_pause_controls
+    )
+    from modules.core_components.ai_models.model_utils import get_trained_models as get_trained_models_util
+
+    shared_state = {
+        # Config & Emotions
+        'user_config': user_config,
+        '_user_config': user_config,
+        '_active_emotions': active_emotions,
+
+        # Directories
+        'OUTPUT_DIR': directories.get('OUTPUT_DIR'),
+        'SAMPLES_DIR': directories.get('SAMPLES_DIR'),
+        'DATASETS_DIR': directories.get('DATASETS_DIR'),
+        'TEMP_DIR': directories.get('TEMP_DIR'),
+
+        # Constants
+        'LANGUAGES': constants.get('LANGUAGES', []),
+        'CUSTOM_VOICE_SPEAKERS': constants.get('CUSTOM_VOICE_SPEAKERS', []),
+        'MODEL_SIZES': constants.get('MODEL_SIZES'),
+        'MODEL_SIZES_BASE': constants.get('MODEL_SIZES_BASE'),
+        'MODEL_SIZES_CUSTOM': constants.get('MODEL_SIZES_CUSTOM'),
+        'MODEL_SIZES_DESIGN': constants.get('MODEL_SIZES_DESIGN'),
+        'MODEL_SIZES_VIBEVOICE': constants.get('MODEL_SIZES_VIBEVOICE'),
+        'VOICE_CLONE_OPTIONS': constants.get('VOICE_CLONE_OPTIONS'),
+        'DEFAULT_VOICE_CLONE_MODEL': constants.get('DEFAULT_VOICE_CLONE_MODEL'),
+        'WHISPER_AVAILABLE': constants.get('WHISPER_AVAILABLE', False),
+        'DEEPFILTER_AVAILABLE': constants.get('DEEPFILTER_AVAILABLE', False),
+
+        # UI component creators
+        'create_qwen_advanced_params': create_qwen_advanced_params,
+        'create_vibevoice_advanced_params': create_vibevoice_advanced_params,
+        'create_emotion_intensity_slider': create_emotion_intensity_slider,
+        'create_pause_controls': create_pause_controls,
+
+        # Emotion management
+        'get_emotion_choices': get_emotion_choices,
+        'apply_emotion_preset': calculate_emotion_values,
+
+        # Core utilities
+        'play_completion_beep': play_completion_beep,
+        'format_help_html': format_help_html,
+
+        # Modal triggers and helpers
+        'confirm_trigger': confirm_trigger,
+        'input_trigger': input_trigger,
+        'show_confirmation_modal_js': show_confirmation_modal_js,
+        'show_input_modal_js': show_input_modal_js,
+
+        # Helper functions
+        'get_trained_models': lambda: get_trained_models_util(directories.get('OUTPUT_DIR').parent / user_config.get("models_folder", "models")),
+
+        # Sample management helpers (Voice Clone & related tools)
+        'get_sample_choices': get_sample_choices,
+        'get_available_samples': get_available_samples,
+        'get_prompt_cache_path': get_prompt_cache_path,
+        'get_or_create_voice_prompt': get_or_create_voice_prompt_standalone,  # Default mock for standalone, main app overrides
+        'refresh_samples': lambda: __import__('gradio').update(choices=get_sample_choices()),
+    }
+
+    # Lambdas that reference shared_state (must be added after dict creation)
+    shared_state['save_emotion_handler'] = lambda name, intensity, temp, rep_pen, top_p: handle_save_emotion(
+        shared_state['_active_emotions'], shared_state['_user_config'], CONFIG_FILE, name, intensity, temp, rep_pen, top_p
+    )
+    shared_state['delete_emotion_handler'] = lambda confirm_val, emotion_name: handle_delete_emotion(
+        shared_state['_active_emotions'], shared_state['_user_config'], CONFIG_FILE, confirm_val, emotion_name
+    )
+    shared_state['save_preference'] = lambda k, v: save_config(shared_state['_user_config'], k, v)
+
+    # Add managers if provided (for main app)
+    if managers:
+        shared_state['tts_manager'] = managers.get('tts_manager')
+        shared_state['asr_manager'] = managers.get('asr_manager')
+
+    return shared_state
+
+
+def run_tool_standalone(TabClass, port=7860, title="Tool - Standalone", extra_shared_state=None):
+    """
+    Run a tool tab in standalone mode for testing.
+
+    Handles all boilerplate: config loading, shared_state setup, modal initialization, and app launch.
+
+    Args:
+        TabClass: The Tab class to run (e.g., VoicePresetsTab)
+        port: Server port (default: 7860)
+        title: Window title (default: "Tool - Standalone")
+        extra_shared_state: Optional dict of tool-specific shared_state entries to add/override
+
+    Usage:
+        if __name__ == "__main__":
+            from modules.core_components.tools import run_tool_standalone
+            run_tool_standalone(VoicePresetsTab, port=7863, title="Voice Presets - Standalone")
+
+        # With tool-specific helpers:
+        if __name__ == "__main__":
+            extra = {'get_sample_choices': lambda: ['sample1', 'sample2']}
+            run_tool_standalone(VoiceCloneTab, port=7862, extra_shared_state=extra)
+    """
+    import gradio as gr
+    from pathlib import Path
+    from modules.core_components import (
+        CONFIRMATION_MODAL_CSS,
+        CONFIRMATION_MODAL_HEAD,
+        CONFIRMATION_MODAL_HTML,
+        INPUT_MODAL_CSS,
+        INPUT_MODAL_HEAD,
+        INPUT_MODAL_HTML,
+        load_emotions_from_config
+    )
+    from modules.core_components.constants import (
+        LANGUAGES,
+        CUSTOM_VOICE_SPEAKERS,
+        MODEL_SIZES_CUSTOM
+    )
+
+    print(f"[*] Starting {TabClass.config.name} Tool - Standalone Mode")
+
+    # Find project root
+    project_root = CONFIG_FILE.parent
+
+    # Load config and emotions
+    user_config = load_config()
+    active_emotions = load_emotions_from_config(user_config)
+
+    if 'emotions' not in user_config or user_config['emotions'] is None:
+        user_config['emotions'] = active_emotions
+
+    # Setup directories
+    OUTPUT_DIR = project_root / user_config.get("output_folder", "output")
+    SAMPLES_DIR = project_root / user_config.get("samples_folder", "samples")
+    DATASETS_DIR = project_root / user_config.get("datasets_folder", "datasets")
+    TEMP_DIR = project_root / user_config.get("temp_folder", "temp")
+    OUTPUT_DIR.mkdir(exist_ok=True)
+
+    # Load theme
+    theme_path = Path(__file__).parent.parent / "theme.json"
+    theme = gr.themes.Base.load(str(theme_path)) if theme_path.exists() else None
+
+    # Create Gradio app
+    with gr.Blocks(title=title) as app:
+        # Add modal HTML
+        gr.HTML(CONFIRMATION_MODAL_HTML)
+        gr.HTML(INPUT_MODAL_HTML)
+
+        gr.Markdown(f"# 🎙️ {TabClass.config.name} (Standalone Testing)")
+        gr.Markdown("*Standalone mode with full modal support*")
+
+        # Hidden trigger widgets
+        with gr.Row():
+            confirm_trigger = gr.Textbox(label="Confirm Trigger", value="", elem_id="confirm-trigger")
+            input_trigger = gr.Textbox(label="Input Trigger", value="", elem_id="input-trigger")
+
+        # Build shared_state using centralized helper
+        shared_state = build_shared_state(
+            user_config=user_config,
+            active_emotions=active_emotions,
+            directories={
+                'OUTPUT_DIR': OUTPUT_DIR,
+                'SAMPLES_DIR': SAMPLES_DIR,
+                'DATASETS_DIR': DATASETS_DIR,
+                'TEMP_DIR': TEMP_DIR
+            },
+            constants={
+                'LANGUAGES': LANGUAGES,
+                'CUSTOM_VOICE_SPEAKERS': CUSTOM_VOICE_SPEAKERS,
+                'MODEL_SIZES_CUSTOM': MODEL_SIZES_CUSTOM
+            },
+            confirm_trigger=confirm_trigger,
+            input_trigger=input_trigger
+        )
+
+        # Add tool-specific shared_state entries
+        if extra_shared_state:
+            shared_state.update(extra_shared_state)
+
+        # Create and setup tab
+        components = TabClass.create_tab(shared_state)
+        TabClass.setup_events(components, shared_state)
+
+    print(f"[*] Output: {OUTPUT_DIR}")
+    from modules.core_components.ai_models.model_utils import get_trained_models
+    models_dir = project_root / user_config.get("models_folder", "models")
+    print(f"[*] Found {len(get_trained_models(models_dir))} trained models")
+    print(f"\n✓ {TabClass.config.name} UI loaded successfully!")
+    print(f"[*] Launching on http://127.0.0.1:{port}")
+
+    app.launch(
+        theme=theme,
+        css=CONFIRMATION_MODAL_CSS + INPUT_MODAL_CSS + SHARED_CSS,
+        head=CONFIRMATION_MODAL_HEAD + INPUT_MODAL_HEAD,
+        server_port=port,
+        server_name="127.0.0.1",
+        share=False,
+        inbrowser=False
+    )

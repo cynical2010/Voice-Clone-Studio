@@ -13,6 +13,15 @@
   - `python script.py` (WRONG - uses system Python)
   - `python -c "import module"` (WRONG - uses system Python)
 
+## Code Style
+
+**NO TYPE HINTS**
+
+- Do NOT use type hints (no `def func(x: int) -> str`)
+- Do NOT import from `typing` module
+- Keep function signatures clean and simple
+- Document types in docstrings if needed
+
 ## Core Architecture Principle
 
 **CRITICAL**: `voice_clone_studio.py` is becoming too large (6000+ lines). **All new features MUST be modularized.**

@@ -3,14 +3,9 @@ Voice Clone Tab
 
 Clone voices from samples using Qwen3-TTS or VibeVoice.
 """
-# Setup path for standalone testing BEFORE imports
-if __name__ == "__main__":
-    import sys
-    from pathlib import Path
-    project_root = Path(__file__).parent.parent.parent.parent
-    sys.path.insert(0, str(project_root))
 import gradio as gr
 import soundfile as sf
+import sys
 import torch
 import random
 from datetime import datetime
@@ -20,10 +15,9 @@ from textwrap import dedent
 from modules.core_components.tools.base import Tab, TabConfig
 from modules.core_components.ai_models.tts_manager import get_tts_manager
 
-
 class VoiceCloneTab(Tab):
     """Voice Clone tab implementation."""
-    
+
     config = TabConfig(
         name="Voice Clone",
         module_name="tab_voice_clone",
@@ -31,12 +25,12 @@ class VoiceCloneTab(Tab):
         enabled=True,
         category="generation"
     )
-    
+
     @classmethod
     def create_tab(cls, shared_state):
         """Create Voice Clone tab UI."""
         components = {}
-        
+
         # Get helper functions and config
         get_sample_choices = shared_state['get_sample_choices']
         get_available_samples = shared_state['get_available_samples']
@@ -57,9 +51,7 @@ class VoiceCloneTab(Tab):
         refresh_samples = shared_state['refresh_samples']
         confirm_trigger = shared_state['confirm_trigger']
         input_trigger = shared_state['input_trigger']
-        
-        import soundfile as sf
-        
+
         with gr.TabItem("Voice Clone") as voice_clone_tab:
             components['voice_clone_tab'] = voice_clone_tab
             gr.Markdown("Clone Voices from Samples, using Qwen3-TTS or VibeVoice")
@@ -291,11 +283,11 @@ class VoiceCloneTab(Tab):
                     components['clone_status'] = gr.Textbox(label="Status", interactive=False, lines=2, max_lines=5)
 
         return components
-    
+
     @classmethod
     def setup_events(cls, components, shared_state):
         """Wire up Voice Clone tab events."""
-        
+
         # Get helper functions and directories
         get_sample_choices = shared_state['get_sample_choices']
         get_available_samples = shared_state['get_available_samples']
@@ -312,10 +304,10 @@ class VoiceCloneTab(Tab):
         input_trigger = shared_state['input_trigger']
         OUTPUT_DIR = shared_state['OUTPUT_DIR']
         play_completion_beep = shared_state.get('play_completion_beep')
-        
+
         # Get TTS manager (singleton)
         tts_manager = get_tts_manager()
-        
+
         def generate_audio_handler(sample_name, text_to_generate, language, seed, model_selection="Qwen3 - Small",
                                    qwen_do_sample=True, qwen_temperature=0.9, qwen_top_k=50, qwen_top_p=1.0, qwen_repetition_penalty=1.05,
                                    qwen_max_new_tokens=2048,
@@ -454,9 +446,7 @@ class VoiceCloneTab(Tab):
                 import traceback
                 traceback.print_exc()
                 return None, f"❌ Error generating audio: {str(e)}"
-        
-        import soundfile as sf
-        
+
         def load_selected_sample(sample_name):
             """Load audio, text, and info for the selected sample."""
             if not sample_name:
@@ -642,140 +632,5 @@ get_tab_class = lambda: VoiceCloneTab
 
 if __name__ == "__main__":
     """Standalone testing of Voice Clone tool."""
-    print("[*] Starting Voice Clone Tool - Standalone Mode")
-    
-    from pathlib import Path
-    import sys
-    import json
-    
-    # Add project root to path
-    project_root = Path(__file__).parent.parent.parent.parent
-    sys.path.insert(0, str(project_root))
-    
-    # Import constants and modals
-    from modules.core_components.constants import (
-        LANGUAGES,
-        VOICE_CLONE_OPTIONS,
-        DEFAULT_VOICE_CLONE_MODEL,
-        QWEN_GENERATION_DEFAULTS,
-        VIBEVOICE_GENERATION_DEFAULTS
-    )
-    from modules.core_components import (
-        CORE_EMOTIONS,
-        CONFIRMATION_MODAL_HTML,
-        CONFIRMATION_MODAL_CSS,
-        INPUT_MODAL_HTML,
-        INPUT_MODAL_CSS,
-        show_confirmation_modal_js,
-        show_input_modal_js,
-        handle_save_emotion,
-        handle_delete_emotion
-    )
-    from modules.core_components.tool_utils import (
-        load_config,
-        save_preference as save_pref_to_file,
-        TRIGGER_HIDE_CSS
-    )
-    
-    # Load config
-    user_config = load_config()
-    active_emotions = user_config.get('emotions', CORE_EMOTIONS)
-    
-    SAMPLES_DIR = project_root / "samples"
-    OUTPUT_DIR = project_root / "output"
-    SAMPLES_DIR.mkdir(exist_ok=True)
-    OUTPUT_DIR.mkdir(exist_ok=True)
-    
-    # Helper: Get sample choices
-    def get_sample_choices():
-        samples = []
-        for json_file in SAMPLES_DIR.glob("*.json"):
-            try:
-                with open(json_file, 'r', encoding='utf-8') as f:
-                    meta = json.load(f)
-                    samples.append(meta.get("name", json_file.stem))
-            except:
-                samples.append(json_file.stem)
-        return samples if samples else ["(No samples found)"]
-    
-    def get_available_samples():
-        samples = []
-        for json_file in SAMPLES_DIR.glob("*.json"):
-            wav_file = json_file.with_suffix(".wav")
-            if wav_file.exists():
-                try:
-                    with open(json_file, 'r', encoding='utf-8') as f:
-                        meta = json.load(f)
-                    samples.append({
-                        "name": meta.get("name", json_file.stem),
-                        "wav_path": str(wav_file),
-                        "ref_text": meta.get("text", ""),
-                        "meta": meta
-                    })
-                except:
-                    pass
-        return samples
-    
-    def get_prompt_cache_path(sample_name, model_size):
-        return project_root / "temp" / f"{sample_name}_{model_size}_prompt.pt"
-    
-    def get_or_create_voice_prompt(model, sample_name, wav_path, ref_text, model_size, progress_callback=None):
-        # Mock - just return that it's not cached
-        return None, False
-    
-    # Shared state with real modal support
-    shared_state = {
-        'LANGUAGES': LANGUAGES,
-        'VOICE_CLONE_OPTIONS': VOICE_CLONE_OPTIONS,
-        'DEFAULT_VOICE_CLONE_MODEL': DEFAULT_VOICE_CLONE_MODEL,
-        '_user_config': user_config,
-        '_active_emotions': active_emotions,
-        'OUTPUT_DIR': OUTPUT_DIR,
-        'SAMPLES_DIR': SAMPLES_DIR,
-        'get_sample_choices': get_sample_choices,
-        'get_available_samples': get_available_samples,
-        'get_prompt_cache_path': get_prompt_cache_path,
-        'get_or_create_voice_prompt': get_or_create_voice_prompt,
-        'apply_emotion_preset': lambda e, i: (0.9, 1.0, 1.05, i),
-        'refresh_samples': lambda: gr.update(choices=get_sample_choices()),
-        'show_input_modal_js': show_input_modal_js,
-        'show_confirmation_modal_js': show_confirmation_modal_js,
-        'save_emotion_handler': lambda name, intensity, temp, rep_pen, top_p: handle_save_emotion(name, intensity, temp, rep_pen, top_p, user_config, active_emotions),
-        'delete_emotion_handler': lambda confirm_val, emotion_name: handle_delete_emotion(confirm_val, emotion_name, user_config, active_emotions),
-        'save_preference': lambda k, v: save_pref_to_file(user_config, k, v),
-        'play_completion_beep': lambda: print("[Beep] Complete!"),
-        'confirm_trigger': None,
-        'input_trigger': None,
-    }
-    
-    from modules.core_components.ui_components import create_qwen_advanced_params, create_vibevoice_advanced_params
-    shared_state['create_qwen_advanced_params'] = create_qwen_advanced_params
-    shared_state['create_vibevoice_advanced_params'] = create_vibevoice_advanced_params
-    
-    print(f"[*] Samples: {SAMPLES_DIR}")
-    print(f"[*] Output: {OUTPUT_DIR}")
-    print(f"[*] Found {len(get_available_samples())} samples")
-    
-    # Load custom theme
-    theme = gr.themes.Base.load('modules/core_components/theme.json')
-    
-    with gr.Blocks(title="Voice Clone - Standalone", head=CONFIRMATION_MODAL_CSS + INPUT_MODAL_CSS, css=TRIGGER_HIDE_CSS) as app:
-        # Add modal HTML
-        gr.HTML(CONFIRMATION_MODAL_HTML)
-        gr.HTML(INPUT_MODAL_HTML)
-        
-        gr.Markdown("# 🎤 Voice Clone Tool (Standalone Testing)")
-        gr.Markdown("*Standalone mode with full modal support*")
-        
-        # Hidden trigger widgets - visible but hidden via CSS
-        with gr.Row():
-            confirm_trigger = gr.Textbox(label="Confirm Trigger", value="", elem_id="confirm-trigger")
-            input_trigger = gr.Textbox(label="Input Trigger", value="", elem_id="input-trigger")
-        shared_state['confirm_trigger'] = confirm_trigger
-        shared_state['input_trigger'] = input_trigger
-        
-        components = VoiceCloneTab.create_tab(shared_state)
-        VoiceCloneTab.setup_events(components, shared_state)
-    
-    print("[*] Launching on http://127.0.0.1:7862")
-    app.launch(theme=theme, server_port=7862, server_name="127.0.0.1", share=False, inbrowser=True)
+    from modules.core_components.tools import run_tool_standalone
+    run_tool_standalone(VoiceCloneTab, port=7862, title="Voice Clone - Standalone")

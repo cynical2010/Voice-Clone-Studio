@@ -4,24 +4,17 @@ Voice Presets Tab
 Use Qwen3-TTS pre-trained models or custom trained models with style control.
 """
 
-# Setup path for standalone testing BEFORE imports
-if __name__ == "__main__":
-    import sys
-    from pathlib import Path
-    project_root = Path(__file__).parent.parent.parent.parent
-    sys.path.insert(0, str(project_root))
-
+import sys
+from pathlib import Path
 import gradio as gr
 import soundfile as sf
-import torch
-import random
 from datetime import datetime
 from textwrap import dedent
 from pathlib import Path
 
 from modules.core_components.tools.base import Tab, TabConfig
-from modules.core_components.tool_utils import format_help_html
 from modules.core_components.ai_models.tts_manager import get_tts_manager
+from modules.core_components.emotion_manager import process_save_emotion_result, process_delete_emotion_result
 
 
 class VoicePresetsTab(Tab):
@@ -50,11 +43,10 @@ class VoicePresetsTab(Tab):
         LANGUAGES = shared_state['LANGUAGES']
         show_input_modal_js = shared_state['show_input_modal_js']
         show_confirmation_modal_js = shared_state['show_confirmation_modal_js']
-        generate_custom_voice = shared_state['generate_custom_voice']
-        generate_with_trained_model = shared_state['generate_with_trained_model']
         save_emotion_handler = shared_state['save_emotion_handler']
         delete_emotion_handler = shared_state['delete_emotion_handler']
         save_preference = shared_state['save_preference']
+        format_help_html = shared_state['format_help_html']
         confirm_trigger = shared_state['confirm_trigger']
         input_trigger = shared_state['input_trigger']
 
@@ -69,7 +61,7 @@ class VoicePresetsTab(Tab):
 
                     components['voice_type_radio'] = gr.Radio(
                         choices=["Premium Speakers", "Trained Models"],
-                        value="Premium Speakers",
+                        value=_user_config.get("voice_type", "Premium Speakers"),
                         label="Voice Source"
                     )
 
@@ -191,18 +183,23 @@ class VoicePresetsTab(Tab):
                             scale=1
                         )
 
-                    # Qwen Advanced Parameters (visible for both modes)
+                    # Qwen Advanced Parameters (always visible, emotion controls match voice type)
+                    initial_voice_type = _user_config.get("voice_type", "Premium Speakers")
+                    emotion_visible = (initial_voice_type == "Trained Models")
+                    
                     custom_params = create_qwen_advanced_params(
                         emotions_dict=_active_emotions,
                         include_emotion=True,
-                        initial_emotion=None,
+                        initial_emotion="(None)",
                         initial_intensity=1.0,
-                        visible=True
+                        visible=True,
+                        emotion_visible=emotion_visible,
+                        shared_state=shared_state
                     )
 
-                    # Store emotion row references with correct names for visibility toggling
-                    components['custom_emotion_row'] = custom_params['emotion_row'] if 'emotion_row' in custom_params else None
-                    components['custom_emotion_buttons_row'] = custom_params['emotion_buttons_row'] if 'emotion_buttons_row' in custom_params else None
+                    # Store emotion row references for visibility toggling
+                    components['custom_emotion_row'] = custom_params.get('emotion_row')
+                    components['custom_emotion_buttons_row'] = custom_params.get('emotion_buttons_row')
 
                     # Create alias references for backward compatibility
                     components['custom_emotion_preset'] = custom_params['emotion_preset']
@@ -262,7 +259,7 @@ class VoicePresetsTab(Tab):
 
             try:
                 progress(0.1, desc=f"Loading CustomVoice model ({model_size})...")
-                
+
                 audio_data, sr = tts_manager.generate_custom_voice(
                     text=text_to_generate,
                     language=language,
@@ -502,7 +499,10 @@ class VoicePresetsTab(Tab):
                 if parts[2] == "cancel":
                     return gr.update(), ""
                 emotion_name = "_".join(parts[2:-1])
-                return save_emotion_handler(emotion_name, intensity, temp, rep_pen, top_p)
+
+                # Use shared helper to process save result
+                save_result = save_emotion_handler(emotion_name, intensity, temp, rep_pen, top_p)
+                return process_save_emotion_result(save_result, shared_state)
 
             return gr.update(), gr.update()
 
@@ -533,14 +533,16 @@ class VoicePresetsTab(Tab):
         def delete_custom_emotion_wrapper(confirm_value, emotion_name):
             """Only process if context matches custom_emotion_."""
             if not confirm_value or not confirm_value.startswith("custom_emotion_"):
-                return gr.update(), gr.update()
-            dropdown_update, status_msg, clear_trigger = delete_emotion_handler(confirm_value, emotion_name)
-            return dropdown_update, status_msg
+                return gr.update(), gr.update(), ""
+
+            # Use shared helper to process delete result
+            delete_result = delete_emotion_handler(confirm_value, emotion_name)
+            return process_delete_emotion_result(delete_result, shared_state)
 
         confirm_trigger.change(
             delete_custom_emotion_wrapper,
             inputs=[confirm_trigger, components['custom_emotion_preset']],
-            outputs=[components['custom_emotion_preset'], components['preset_status']]
+            outputs=[components['custom_emotion_preset'], components['preset_status'], confirm_trigger]
         )
 
         input_trigger.change(
@@ -568,125 +570,16 @@ class VoicePresetsTab(Tab):
             outputs=[]
         )
 
+        components['voice_type_radio'].change(
+            lambda x: save_preference("voice_type", x),
+            inputs=[components['voice_type_radio']],
+            outputs=[]
+        )
+
 # Export for tab registry
 get_tab_class = lambda: VoicePresetsTab
 
 if __name__ == "__main__":
     """Standalone testing of Voice Presets tool."""
-    print("[*] Starting Voice Presets Tool - Standalone Mode")
-
-    from pathlib import Path
-    import sys
-
-    project_root = Path(__file__).parent.parent.parent.parent
-    sys.path.insert(0, str(project_root))
-
-    from modules.core_components import (
-        CORE_EMOTIONS,
-        CONFIRMATION_MODAL_HTML,
-        CONFIRMATION_MODAL_CSS,
-        INPUT_MODAL_HTML,
-        INPUT_MODAL_CSS,
-        show_confirmation_modal_js,
-        show_input_modal_js,
-        handle_save_emotion,
-        handle_delete_emotion
-    )
-    from modules.core_components.ui_components import create_qwen_advanced_params
-    from modules.core_components.constants import (
-        LANGUAGES,
-        CUSTOM_VOICE_SPEAKERS,
-        MODEL_SIZES_CUSTOM,
-        QWEN_GENERATION_DEFAULTS
-    )
-    from modules.core_components.tool_utils import (
-        load_config,
-        save_preference as save_pref_to_file,
-        format_help_html,
-        TRIGGER_HIDE_CSS
-    )
-
-    # Load config with persistent settings
-    user_config = load_config()
-    active_emotions = user_config.get('emotions', CORE_EMOTIONS)
-
-    # Simple mock for create_qwen_advanced_params if not available
-    if not hasattr(create_qwen_advanced_params, '__call__'):
-        def create_qwen_advanced_params(*args, **kwargs):
-            return {}
-
-    OUTPUT_DIR = project_root / "output"
-    MODELS_DIR = project_root / "models"
-    OUTPUT_DIR.mkdir(exist_ok=True)
-
-    def get_trained_models():
-        """Find trained model checkpoints."""
-        models = []
-        if MODELS_DIR.exists():
-            for folder in MODELS_DIR.iterdir():
-                if folder.is_dir():
-                    for checkpoint in folder.glob("checkpoint-*"):
-                        if checkpoint.is_dir():
-                            models.append({
-                                'display_name': f"{folder.name} - {checkpoint.name}",
-                                'path': str(checkpoint),
-                                'speaker_name': folder.name
-                            })
-        return models
-
-    # Stub handlers for standalone testing (actual implementations in handlers section)
-    def generate_custom_voice(*args, **kwargs):
-        return None, "⚠️ Handler not yet connected in standalone mode"
-
-    def generate_with_trained_model(*args, **kwargs):
-        return None, "⚠️ Handler not yet connected in standalone mode"
-
-    shared_state = {
-        'get_trained_models': get_trained_models,
-        'create_qwen_advanced_params': create_qwen_advanced_params,
-        '_user_config': user_config,
-        '_active_emotions': active_emotions,
-        'CUSTOM_VOICE_SPEAKERS': CUSTOM_VOICE_SPEAKERS,
-        'MODEL_SIZES_CUSTOM': MODEL_SIZES_CUSTOM,
-        'LANGUAGES': LANGUAGES,
-        'OUTPUT_DIR': OUTPUT_DIR,
-        'show_input_modal_js': show_input_modal_js,
-        'show_confirmation_modal_js': show_confirmation_modal_js,
-        'generate_custom_voice': generate_custom_voice,
-        'generate_with_trained_model': generate_with_trained_model,
-        'save_emotion_handler': lambda name, intensity, temp, rep_pen, top_p: handle_save_emotion(name, intensity, temp, rep_pen, top_p, user_config, active_emotions),
-        'delete_emotion_handler': lambda confirm_val, emotion_name: handle_delete_emotion(confirm_val, emotion_name, user_config, active_emotions),
-        'save_preference': lambda k, v: save_pref_to_file(user_config, k, v),
-        'play_completion_beep': lambda: print("[Beep] Complete!"),
-        'get_emotion_choices': lambda emotions: sorted(emotions.keys(), key=str.lower),
-        'confirm_trigger': None,
-        'input_trigger': None}
-
-    # Load custom theme
-    theme = gr.themes.Base.load('modules/core_components/theme.json')
-
-    print(f"[*] Output: {OUTPUT_DIR}")
-    print(f"[*] Found {len(get_trained_models())} trained models")
-
-    with gr.Blocks(title="Voice Presets - Standalone", head=CONFIRMATION_MODAL_CSS + INPUT_MODAL_CSS, css=TRIGGER_HIDE_CSS) as app:
-        # Add modal HTML
-        gr.HTML(CONFIRMATION_MODAL_HTML)
-        gr.HTML(INPUT_MODAL_HTML)
-        
-        gr.Markdown("# 🎙️ Voice Presets Tool (Standalone Testing)")
-        gr.Markdown("*Standalone mode with full modal support*")
-
-        # Hidden trigger widgets - visible but hidden via CSS
-        with gr.Row():
-            confirm_trigger = gr.Textbox(label="Confirm Trigger", value="", elem_id="confirm-trigger")
-            input_trigger = gr.Textbox(label="Input Trigger", value="", elem_id="input-trigger")
-        shared_state['confirm_trigger'] = confirm_trigger
-        shared_state['input_trigger'] = input_trigger
-
-        components = VoicePresetsTab.create_tab(shared_state)
-        VoicePresetsTab.setup_events(components, shared_state)
-
-    print("\n✓ Voice Presets UI loaded successfully!")
-    print("   Note: Generate buttons show stub messages - handlers pending implementation")
-    print("[*] Launching on http://127.0.0.1:7863")
-    app.launch(theme=theme, server_port=7863, server_name="127.0.0.1", share=False, inbrowser=False)
+    from modules.core_components.tools import run_tool_standalone
+    run_tool_standalone(VoicePresetsTab, port=7863, title="Voice Presets - Standalone")

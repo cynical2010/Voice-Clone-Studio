@@ -20,7 +20,7 @@ from pathlib import Path
 from textwrap import dedent
 
 from modules.core_components.tools.base import Tab, TabConfig
-from modules.core_components.tool_utils import format_help_html
+# format_help_html comes from shared_state
 from modules.core_components.ai_models.tts_manager import get_tts_manager
 
 # TODO: Add these helper methods to this class before setup_events():
@@ -46,8 +46,9 @@ class ConversationTab(Tab):
     def create_tab(cls, shared_state):
         """Create Conversation tab UI."""
         components = {}
-        
+
         # Get helper functions and config
+        format_help_html = shared_state['format_help_html']
         get_sample_choices = shared_state['get_sample_choices']
         get_available_samples = shared_state['get_available_samples']
         create_vibevoice_advanced_params = shared_state['create_vibevoice_advanced_params']
@@ -694,7 +695,7 @@ if __name__ == "__main__":
         QWEN_GENERATION_DEFAULTS,
         VIBEVOICE_GENERATION_DEFAULTS
     )
-    from modules.core_components.tool_utils import load_config, save_preference as save_pref_to_file
+    from modules.core_components.tools import load_config, save_preference as save_pref_to_file
     
     # Load config
     user_config = load_config()
