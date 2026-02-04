@@ -20,7 +20,6 @@ from datetime import datetime
 from pathlib import Path
 
 from modules.core_components.tools.base import Tab, TabConfig
-from modules.core_components.ui_components import create_qwen_advanced_params
 from modules.core_components.ai_models.tts_manager import get_tts_manager
 
 
@@ -42,7 +41,8 @@ class VoiceDesignTab(Tab):
 
         # Get shared utilities
         LANGUAGES = shared_state.get('LANGUAGES', ['Auto'])
-        user_config = shared_state.get('user_config', {})
+        _user_config = shared_state.get('_user_config', {})
+        create_qwen_advanced_params = shared_state.get('create_qwen_advanced_params')
 
         with gr.TabItem("Voice Design"):
             gr.Markdown("Create new voices from natural language descriptions")
@@ -67,7 +67,7 @@ class VoiceDesignTab(Tab):
                     with gr.Row():
                         components['design_language'] = gr.Dropdown(
                             choices=LANGUAGES,
-                            value=user_config.get("language", "Auto"),
+                            value=_user_config.get("language", "Auto"),
                             label="Language",
                             scale=2
                         )
@@ -86,7 +86,8 @@ class VoiceDesignTab(Tab):
                     # Qwen Advanced Parameters
                     design_params = create_qwen_advanced_params(
                         include_emotion=False,
-                        visible=True
+                        visible=True,
+                        shared_state=shared_state
                     )
                     components.update(design_params)
 
@@ -120,8 +121,8 @@ class VoiceDesignTab(Tab):
         tts_manager = get_tts_manager()
 
         def generate_voice_design_handler(text_to_generate, language, instruct, seed, save_to_output,
-                                         do_sample, temperature, top_k, top_p, repetition_penalty, max_new_tokens,
-                                         progress=gr.Progress()):
+                                          do_sample, temperature, top_k, top_p, repetition_penalty, max_new_tokens,
+                                          progress=gr.Progress()):
             """Generate audio using voice design with natural language instructions."""
             if not text_to_generate or not text_to_generate.strip():
                 return None, "❌ Please enter text to generate."
@@ -167,25 +168,12 @@ class VoiceDesignTab(Tab):
                 if save_to_output:
                     out_file = OUTPUT_DIR / f"voice_design_{timestamp}.wav"
                 else:
-                    # Use temp directory
-                    fd, temp_path = tempfile.mkstemp(suffix=".wav", prefix=f"voice_design_{timestamp}_")
-                    import os
-                    os.close(fd)
-                    out_file = Path(temp_path)
+                    # Use output directory with temp_ prefix for temp files
+                    out_file = OUTPUT_DIR / f"temp_voice_design_{timestamp}.wav"
 
-                try:
-                    # Ensure directory exists
-                    if save_to_output and not out_file.parent.exists():
-                        out_file.parent.mkdir(parents=True, exist_ok=True)
-                    sf.write(str(out_file), audio_data, sr)
-                except Exception as save_err:
-                    print(f"[!] Error saving to {out_file}: {save_err}. Trying fallback...")
-                    # Fallback to system temp
-                    fd, temp_path = tempfile.mkstemp(suffix=".wav", prefix=f"voice_design_{timestamp}_")
-                    import os
-                    os.close(fd)
-                    out_file = Path(temp_path)
-                    sf.write(str(out_file), audio_data, sr)
+                # Ensure directory exists
+                OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+                sf.write(str(out_file), audio_data, sr)
 
                 progress(1.0, desc="Done!")
                 if play_completion_beep:
@@ -195,7 +183,7 @@ class VoiceDesignTab(Tab):
             except Exception as e:
                 return None, f"❌ Error generating audio: {str(e)}"
 
-        def save_designed_voice(audio, design_name):
+        def save_designed_voice(audio, design_name, ref_text, instruct, seed):
             """Save a designed voice as a sample (tool-specific implementation)."""
             if not audio:
                 return "❌ No audio to save"
@@ -204,11 +192,6 @@ class VoiceDesignTab(Tab):
                 return "❌ Please enter a name"
 
             try:
-                import soundfile as sf
-                import shutil
-                import json
-                from datetime import datetime
-
                 # Clean the name
                 safe_name = "".join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in design_name.strip())
 
@@ -225,9 +208,12 @@ class VoiceDesignTab(Tab):
 
                 # Create metadata
                 metadata = {
-                    "name": safe_name,
-                    "text": "Voice design sample",
-                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    "Name": safe_name,
+                    "Text": ref_text if ref_text else "Voice design sample",
+                    "Type": "Voice Design",
+                    "Instruct": instruct if instruct else "",
+                    "Seed": seed if seed is not None else -1,
+                    "Created": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 }
 
                 with open(json_path, 'w', encoding='utf-8') as f:
@@ -263,7 +249,7 @@ class VoiceDesignTab(Tab):
 
         # Handle save designed voice input modal submission
         if input_trigger:
-            def handle_save_design_input(input_value, audio):
+            def handle_save_design_input(input_value, audio, ref_text, instruct, seed):
                 """Process input modal submission for saving designed voice."""
                 # Context filtering: only process if this is our context
                 if not input_value or not input_value.startswith("save_design_"):
@@ -275,14 +261,16 @@ class VoiceDesignTab(Tab):
                 if len(parts) >= 3:
                     # Remove context prefix and timestamp (last part)
                     design_name = "_".join(parts[2:-1])
-                    status = save_designed_voice(audio, design_name)
+                    status = save_designed_voice(audio, design_name, ref_text, instruct, seed)
                     return status
 
                 return gr.update()
 
             input_trigger.change(
                 handle_save_design_input,
-                inputs=[input_trigger, components['design_output_audio']],
+                inputs=[input_trigger, components['design_output_audio'], 
+                        components['design_text_input'], components['design_instruct_input'],
+                        components['design_seed']],
                 outputs=[components['design_status']]
             )
 
@@ -301,75 +289,5 @@ get_tab_class = lambda: VoiceDesignTab
 
 if __name__ == "__main__":
     """Standalone testing of Voice Design tool."""
-    print("[*] Starting Voice Design Tool - Standalone Mode")
-
-    from pathlib import Path
-    import sys
-
-    # Add project root to path
-    project_root = Path(__file__).parent.parent.parent.parent
-    sys.path.insert(0, str(project_root))
-
-    # Import constants and modal components
-    from modules.core_components.constants import LANGUAGES, QWEN_GENERATION_DEFAULTS
-    from modules.core_components import (
-        INPUT_MODAL_HTML,
-        INPUT_MODAL_CSS,
-        show_input_modal_js
-    )
-    from modules.core_components.tools import (
-        load_config,
-        save_preference as save_pref_to_file,
-        TRIGGER_HIDE_CSS
-    )
-    
-    # Load config
-    user_config = load_config()
-    
-    # Setup shared_state with modal support
-    shared_state = {
-        # Constants
-        'LANGUAGES': LANGUAGES,
-        'user_config': user_config,
-
-        # Directories
-        'OUTPUT_DIR': project_root / "output",
-        'SAMPLES_DIR': project_root / "samples",
-
-        # Modal functions (real)
-        'show_input_modal_js': show_input_modal_js,
-        'save_preference': lambda k, v: save_pref_to_file(user_config, k, v),
-        'play_completion_beep': lambda: print("[Beep] Generation complete!"),
-
-        # Trigger (will be set below)
-        'input_trigger': None,
-    }
-
-    # Ensure directories exist
-    shared_state['OUTPUT_DIR'].mkdir(exist_ok=True)
-    shared_state['SAMPLES_DIR'].mkdir(exist_ok=True)
-
-    print(f"[*] Output: {shared_state['OUTPUT_DIR']}")
-    print(f"[*] Samples: {shared_state['SAMPLES_DIR']}")
-    
-    # Load custom theme
-    theme = gr.themes.Base.load('modules/core_components/theme.json')
-
-    # Create standalone UI with modal support
-    with gr.Blocks(title="Voice Design - Standalone", head=INPUT_MODAL_CSS, css=TRIGGER_HIDE_CSS) as app:
-        # Add modal HTML
-        gr.HTML(INPUT_MODAL_HTML)
-        
-        gr.Markdown("# 🎨 Voice Design Tool (Standalone Testing)")
-        gr.Markdown("*Standalone mode with full modal support*")
-
-        # Hidden trigger for modal - visible but hidden via CSS
-        input_trigger = gr.Textbox(label="Input Trigger", value="", elem_id="input-trigger")
-        shared_state['input_trigger'] = input_trigger
-
-        # Create the tool
-        components = VoiceDesignTab.create_tab(shared_state)
-        VoiceDesignTab.setup_events(components, shared_state)
-
-    print("[*] Launching on http://127.0.0.1:7861")
-    app.launch(theme=theme, server_port=7861, server_name="127.0.0.1", share=False, inbrowser=True)
+    from modules.core_components.tools import run_tool_standalone
+    run_tool_standalone(VoiceDesignTab, port=7861, title="Voice Design - Standalone")

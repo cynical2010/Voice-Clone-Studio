@@ -49,7 +49,7 @@ def create_qwen_advanced_params(
     """
     components = {}
 
-    with gr.Accordion("Advanced Parameters", open=False, visible=visible):
+    with gr.Accordion("Advanced Parameters", open=False, visible=visible) as accordion:
         # Emotion section (optional)
         if include_emotion:
             emotion_choices = get_emotion_choices(emotions_dict) if emotions_dict else []
@@ -156,6 +156,9 @@ def create_qwen_advanced_params(
             return temp, top_p, penalty
 
         components['update_from_emotion'] = update_from_emotion
+
+    # Store accordion reference for visibility toggling
+    components['accordion'] = accordion
 
     return components
 

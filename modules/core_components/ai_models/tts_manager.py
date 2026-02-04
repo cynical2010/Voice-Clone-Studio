@@ -484,8 +484,8 @@ class TTSManager:
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
 
-        # Load model
-        model = self.get_qwen3_custom_voice(model_size)
+        # Load BASE model (not CustomVoice - Base supports voice cloning)
+        model = self.get_qwen3_base(model_size)
 
         # Prepare generation kwargs
         gen_kwargs = {

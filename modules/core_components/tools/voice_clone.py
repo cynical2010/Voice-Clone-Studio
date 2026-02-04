@@ -3,9 +3,17 @@ Voice Clone Tab
 
 Clone voices from samples using Qwen3-TTS or VibeVoice.
 """
+# Setup path for standalone testing BEFORE imports
+if __name__ == "__main__":
+    import sys
+    from pathlib import Path
+    project_root = Path(__file__).parent.parent.parent.parent
+    sys.path.insert(0, str(project_root))
+    # Also add modules directory for vibevoice_tts imports
+    sys.path.insert(0, str(project_root / "modules"))
+
 import gradio as gr
 import soundfile as sf
-import sys
 import torch
 import random
 from datetime import datetime
@@ -34,8 +42,8 @@ class VoiceCloneTab(Tab):
         # Get helper functions and config
         get_sample_choices = shared_state['get_sample_choices']
         get_available_samples = shared_state['get_available_samples']
+        load_sample_details = shared_state['load_sample_details']
         get_emotion_choices = shared_state['get_emotion_choices']
-        apply_emotion_preset = shared_state['apply_emotion_preset']
         get_prompt_cache_path = shared_state['get_prompt_cache_path']
         LANGUAGES = shared_state['LANGUAGES']
         VOICE_CLONE_OPTIONS = shared_state['VOICE_CLONE_OPTIONS']
@@ -47,7 +55,6 @@ class VoiceCloneTab(Tab):
         save_emotion_handler = shared_state['save_emotion_handler']
         delete_emotion_handler = shared_state['delete_emotion_handler']
         save_preference = shared_state['save_preference']
-        generate_audio = shared_state['generate_audio']
         refresh_samples = shared_state['refresh_samples']
         confirm_trigger = shared_state['confirm_trigger']
         input_trigger = shared_state['input_trigger']
@@ -61,9 +68,11 @@ class VoiceCloneTab(Tab):
                     gr.Markdown("### Voice Sample")
 
                     sample_choices = get_sample_choices()
+                    first_sample_name = sample_choices[0] if sample_choices else None
+                    
                     components['sample_dropdown'] = gr.Dropdown(
                         choices=sample_choices,
-                        value=sample_choices[0] if sample_choices else None,
+                        value=first_sample_name,
                         label="Select Sample",
                         info="Manage samples in Prep Samples tab"
                     )
@@ -72,23 +81,29 @@ class VoiceCloneTab(Tab):
                         components['load_sample_btn'] = gr.Button("Load", size="sm")
                         components['refresh_samples_btn'] = gr.Button("Refresh", size="sm")
 
+                    # Pre-load first sample's data for initial display
+                    initial_audio, initial_text, initial_info = load_sample_details(first_sample_name)
+
                     components['sample_audio'] = gr.Audio(
                         label="Sample Preview",
                         type="filepath",
                         interactive=False,
-                        visible=True
+                        visible=True,
+                        value=initial_audio
                     )
 
                     components['sample_text'] = gr.Textbox(
                         label="Sample Text",
                         interactive=False,
-                        max_lines=10
+                        max_lines=10,
+                        value=initial_text
                     )
 
                     components['sample_info'] = gr.Textbox(
                         label="Info",
                         interactive=False,
-                        max_lines=3
+                        max_lines=3,
+                        value=initial_info
                     )
 
                 # Right column - Generation (2/3 width)
@@ -125,87 +140,36 @@ class VoiceCloneTab(Tab):
                             scale=1
                         )
 
-                    # Qwen3 Advanced Parameters
+                    # Qwen3 Advanced Parameters (create_qwen_advanced_params includes its own accordion)
                     is_qwen_initial = "Qwen" in _user_config.get("voice_clone_model", DEFAULT_VOICE_CLONE_MODEL)
-                    components['qwen_params_accordion'] = gr.Accordion("Qwen3 Advanced Parameters", open=False, visible=is_qwen_initial)
-                    with components['qwen_params_accordion']:
+                    create_qwen_advanced_params = shared_state['create_qwen_advanced_params']
 
-                        # Emotion preset dropdown
-                        emotion_choices = get_emotion_choices(_active_emotions)
-                        with gr.Row():
-                            components['qwen_emotion_preset'] = gr.Dropdown(
-                                choices=emotion_choices,
-                                value=None,
-                                label="🎭 Emotion Preset",
-                                info="Quick presets that adjust parameters for different emotions",
-                                scale=3
-                            )
-                            components['qwen_emotion_intensity'] = gr.Slider(
-                                minimum=0.0,
-                                maximum=2.0,
-                                value=1.0,
-                                step=0.1,
-                                label="Intensity",
-                                info="Emotion strength (0=none, 2=extreme)",
-                                scale=1
-                            )
+                    qwen_params = create_qwen_advanced_params(
+                        emotions_dict=_active_emotions,
+                        include_emotion=True,
+                        initial_emotion="(None)",
+                        initial_intensity=1.0,
+                        visible=is_qwen_initial,
+                        emotion_visible=True,
+                        shared_state=shared_state
+                    )
 
-                        # Emotion management buttons
-                        with gr.Row():
-                            components['qwen_save_emotion_btn'] = gr.Button("Save", size="sm", scale=1)
-                            components['qwen_delete_emotion_btn'] = gr.Button("Delete", size="sm", scale=1)
-                        components['qwen_emotion_save_name'] = gr.Textbox(visible=False, value="")
+                    # Store the accordion reference for toggling
+                    components['qwen_params_accordion'] = qwen_params.get('accordion')
 
-                        with gr.Row():
-                            components['qwen_do_sample'] = gr.Checkbox(
-                                label="Enable Sampling",
-                                value=True,
-                                info="Qwen3 recommends sampling enabled (default: True)"
-                            )
-                            components['qwen_temperature'] = gr.Slider(
-                                minimum=0.1,
-                                maximum=2.0,
-                                value=0.9,
-                                step=0.05,
-                                label="Temperature",
-                                info="Sampling temperature"
-                            )
-
-                        with gr.Row():
-                            components['qwen_top_k'] = gr.Slider(
-                                minimum=0,
-                                maximum=100,
-                                value=50,
-                                step=1,
-                                label="Top-K",
-                                info="Keep only top K tokens"
-                            )
-                            components['qwen_top_p'] = gr.Slider(
-                                minimum=0.0,
-                                maximum=1.0,
-                                value=1.0,
-                                step=0.05,
-                                label="Top-P (Nucleus)",
-                                info="Cumulative probability threshold"
-                            )
-
-                        with gr.Row():
-                            components['qwen_repetition_penalty'] = gr.Slider(
-                                minimum=1.0,
-                                maximum=2.0,
-                                value=1.05,
-                                step=0.05,
-                                label="Repetition Penalty",
-                                info="Penalize repeated tokens"
-                            )
-                            components['qwen_max_new_tokens'] = gr.Slider(
-                                minimum=512,
-                                maximum=4096,
-                                value=2048,
-                                step=256,
-                                label="Max New Tokens",
-                                info="Maximum codec tokens to generate"
-                            )
+                    # Store references
+                    components['qwen_params'] = qwen_params
+                    components['qwen_emotion_preset'] = qwen_params['emotion_preset']
+                    components['qwen_emotion_intensity'] = qwen_params['emotion_intensity']
+                    components['qwen_save_emotion_btn'] = qwen_params.get('save_emotion_btn')
+                    components['qwen_delete_emotion_btn'] = qwen_params.get('delete_emotion_btn')
+                    components['qwen_emotion_save_name'] = qwen_params.get('emotion_save_name')
+                    components['qwen_do_sample'] = qwen_params['do_sample']
+                    components['qwen_temperature'] = qwen_params['temperature']
+                    components['qwen_top_k'] = qwen_params['top_k']
+                    components['qwen_top_p'] = qwen_params['top_p']
+                    components['qwen_repetition_penalty'] = qwen_params['repetition_penalty']
+                    components['qwen_max_new_tokens'] = qwen_params['max_new_tokens']
 
                     # VibeVoice Advanced Parameters
                     components['vv_params_accordion'] = gr.Accordion("VibeVoice Advanced Parameters", open=False, visible=not is_qwen_initial)
@@ -291,9 +255,9 @@ class VoiceCloneTab(Tab):
         # Get helper functions and directories
         get_sample_choices = shared_state['get_sample_choices']
         get_available_samples = shared_state['get_available_samples']
+        load_sample_details = shared_state['load_sample_details']
         get_prompt_cache_path = shared_state['get_prompt_cache_path']
         get_or_create_voice_prompt = shared_state['get_or_create_voice_prompt']
-        apply_emotion_preset = shared_state['apply_emotion_preset']
         refresh_samples = shared_state['refresh_samples']
         show_input_modal_js = shared_state['show_input_modal_js']
         show_confirmation_modal_js = shared_state['show_confirmation_modal_js']
@@ -363,7 +327,7 @@ class VoiceCloneTab(Tab):
                     progress(0.1, desc=f"Loading Qwen3 model ({model_size})...")
 
                     # Get or create the voice prompt (with caching)
-                    model = tts_manager.get_qwen3_custom_voice(model_size)
+                    model = tts_manager.get_qwen3_base(model_size)
                     prompt_items, was_cached = get_or_create_voice_prompt(
                         model=model,
                         sample_name=sample_name,
@@ -449,38 +413,9 @@ class VoiceCloneTab(Tab):
 
         def load_selected_sample(sample_name):
             """Load audio, text, and info for the selected sample."""
-            if not sample_name:
-                return None, "", ""
-            samples = get_available_samples()
-            for s in samples:
-                if s["name"] == sample_name:
-                    # Check cache status for both model sizes
-                    cache_small = get_prompt_cache_path(sample_name, "0.6B").exists()
-                    cache_large = get_prompt_cache_path(sample_name, "1.7B").exists()
-
-                    if cache_small and cache_large:
-                        cache_status = "Qwen Cache: ⚡ Small, Large"
-                    elif cache_small:
-                        cache_status = "Qwen Cache: ⚡ Small"
-                    elif cache_large:
-                        cache_status = "Qwen Cache: ⚡ Large"
-                    else:
-                        cache_status = "Qwen Cache: 📦 Not cached"
-
-                    try:
-                        audio_data, sr = sf.read(s["wav_path"])
-                        duration = len(audio_data) / sr
-                        info = f"**Info**\n\nDuration: {duration:.2f}s | {cache_status}"
-                    except:
-                        info = f"**Info**\n\n{cache_status}"
-
-                    # Add design instructions if this was a Voice Design sample
-                    meta = s.get("meta", {})
-                    if meta.get("Type") == "Voice Design" and meta.get("Instruct"):
-                        info += f"\n\n**Voice Design:**\n{meta['Instruct']}"
-
-                    return s["wav_path"], s["ref_text"], info
-            return None, "", ""
+            audio, text, info = load_sample_details(sample_name)
+            print(f"[DEBUG] Returning: audio={audio}, text_len={len(text) if text else 0}, info_len={len(info) if info else 0}")
+            return audio, text, info
 
         # Connect event handlers for Voice Clone tab
         components['sample_dropdown'].change(
@@ -498,6 +433,89 @@ class VoiceCloneTab(Tab):
         components['refresh_samples_btn'].click(
             refresh_samples,
             outputs=[components['sample_dropdown']]
+        )
+
+        # Wire up emotion preset handlers (same pattern as original)
+        if 'update_from_emotion' in components.get('qwen_params', {}):
+            components['qwen_emotion_preset'].change(
+                components['qwen_params']['update_from_emotion'],
+                inputs=[components['qwen_emotion_preset'], components['qwen_emotion_intensity']],
+                outputs=[components['qwen_temperature'], components['qwen_top_p'], components['qwen_repetition_penalty']]
+            )
+
+            components['qwen_emotion_intensity'].change(
+                components['qwen_params']['update_from_emotion'],
+                inputs=[components['qwen_emotion_preset'], components['qwen_emotion_intensity']],
+                outputs=[components['qwen_temperature'], components['qwen_top_p'], components['qwen_repetition_penalty']]
+            )
+
+        # Emotion save button
+        components['qwen_save_emotion_btn'].click(
+            fn=None,
+            inputs=[components['qwen_emotion_preset']],
+            outputs=None,
+            js=show_input_modal_js(
+                title="Save Emotion Preset",
+                message="Enter a name for this emotion preset:",
+                placeholder="e.g., Happy, Sad, Excited",
+                context="qwen_emotion_"
+            )
+        )
+
+        # Emotion delete button
+        components['qwen_delete_emotion_btn'].click(
+            fn=None,
+            inputs=None,
+            outputs=None,
+            js=show_confirmation_modal_js(
+                title="Delete Emotion Preset?",
+                message="This will permanently delete this emotion preset from your configuration.",
+                confirm_button_text="Delete",
+                context="qwen_emotion_"
+            )
+        )
+
+        # Handler for emotion save from input modal
+        def handle_qwen_emotion_input(input_value, intensity, temp, rep_pen, top_p):
+            """Process input modal submission for Voice Clone emotion save."""
+            if not input_value or not input_value.startswith("qwen_emotion_"):
+                return gr.update(), gr.update()
+
+            parts = input_value.split("_")
+            if len(parts) >= 3:
+                if parts[2] == "cancel":
+                    return gr.update(), ""
+                emotion_name = "_".join(parts[2:-1])
+
+                # Use shared helper to process save result
+                from modules.core_components.emotion_manager import process_save_emotion_result
+                save_result = save_emotion_handler(emotion_name, intensity, temp, rep_pen, top_p)
+                return process_save_emotion_result(save_result, shared_state)
+
+            return gr.update(), gr.update()
+
+        input_trigger.change(
+            handle_qwen_emotion_input,
+            inputs=[input_trigger, components['qwen_emotion_intensity'], components['qwen_temperature'],
+                    components['qwen_repetition_penalty'], components['qwen_top_p']],
+            outputs=[components['qwen_emotion_preset'], components['clone_status']]
+        )
+
+        # Handler for emotion delete from confirmation modal
+        def delete_qwen_emotion_wrapper(confirm_value, emotion_name):
+            """Only process if context matches qwen_emotion_."""
+            if not confirm_value or not confirm_value.startswith("qwen_emotion_"):
+                return gr.update(), gr.update(), ""
+
+            # Use shared helper to process delete result
+            from modules.core_components.emotion_manager import process_delete_emotion_result
+            delete_result = delete_emotion_handler(confirm_value, emotion_name)
+            return process_delete_emotion_result(delete_result, shared_state)
+
+        confirm_trigger.change(
+            delete_qwen_emotion_wrapper,
+            inputs=[confirm_trigger, components['qwen_emotion_preset']],
+            outputs=[components['qwen_emotion_preset'], components['clone_status'], confirm_trigger]
         )
 
         components['generate_btn'].click(
@@ -532,97 +550,37 @@ class VoiceCloneTab(Tab):
             outputs=[components['qwen_params_accordion'], components['vv_params_accordion']]
         )
 
-        # Apply emotion preset to Qwen parameters
-        # Update when emotion changes
-        components['qwen_emotion_preset'].change(
-            apply_emotion_preset,
-            inputs=[components['qwen_emotion_preset'], components['qwen_emotion_intensity']],
-            outputs=[components['qwen_temperature'], components['qwen_top_p'], components['qwen_repetition_penalty'], components['qwen_emotion_intensity']]
-        )
-
-        # Update when intensity changes
-        components['qwen_emotion_intensity'].change(
-            apply_emotion_preset,
-            inputs=[components['qwen_emotion_preset'], components['qwen_emotion_intensity']],
-            outputs=[components['qwen_temperature'], components['qwen_top_p'], components['qwen_repetition_penalty'], components['qwen_emotion_intensity']]
-        )
-
-        # Emotion management buttons
-        components['qwen_save_emotion_btn'].click(
-            fn=None,
-            inputs=[components['qwen_emotion_preset']],
-            outputs=None,
-            js=show_input_modal_js(
-                title="Save Emotion Preset",
-                message="Enter a name for this emotion preset:",
-                placeholder="e.g., Happy, Sad, Excited",
-                context="qwen_emotion_"
-            )
-        )
-
-        # Handler for when user submits from input modal
-        def handle_qwen_emotion_input(input_value, intensity, temp, rep_pen, top_p):
-            """Process input modal submission for Voice Clone emotion save."""
-            # Context filtering: only process if this is our context
-            if not input_value or not input_value.startswith("qwen_emotion_"):
-                return gr.update(), gr.update()
-
-            # Extract emotion name from context prefix
-            # Remove context prefix and timestamp
-            parts = input_value.split("_")
-            if len(parts) >= 3:
-                # Format: qwen_emotion_<name>_<timestamp> or qwen_emotion_cancel_<timestamp>
-                if parts[2] == "cancel":
-                    return gr.update(), ""
-                # Everything between qwen_emotion_ and final timestamp
-                emotion_name = "_".join(parts[2:-1])
-                return save_emotion_handler(emotion_name, intensity, temp, rep_pen, top_p)
-
-            return gr.update(), gr.update()
-
-        components['qwen_delete_emotion_btn'].click(
-            fn=None,
-            inputs=None,
-            outputs=None,
-            js=show_confirmation_modal_js(
-                title="Delete Emotion Preset?",
-                message="This will permanently delete this emotion preset from your configuration.",
-                confirm_button_text="Delete",
-                context="qwen_emotion_"
-            )
-        )
-
+        # Save voice clone model selection
         components['clone_model_dropdown'].change(
             lambda x: save_preference("voice_clone_model", x),
             inputs=[components['clone_model_dropdown']],
             outputs=[]
         )
 
-        # Emotion delete confirmation handler for Voice Clone tab
-        def delete_qwen_emotion_wrapper(confirm_value, emotion_name):
-            """Only process if context matches qwen_emotion_."""
-            if not confirm_value or not confirm_value.startswith("qwen_emotion_"):
-                return gr.update(), gr.update()
-            # Call the delete handler with both parameters
-            dropdown_update, status_msg, clear_trigger = delete_emotion_handler(confirm_value, emotion_name)
-            return dropdown_update, status_msg
-
-        confirm_trigger.change(
-            delete_qwen_emotion_wrapper,
-            inputs=[confirm_trigger, components['qwen_emotion_preset']],
-            outputs=[components['qwen_emotion_preset'], components['clone_status']]
+        # Save language selection
+        components['language_dropdown'].change(
+            lambda x: save_preference("language", x),
+            inputs=[components['language_dropdown']],
+            outputs=[]
         )
 
-        input_trigger.change(
-            handle_qwen_emotion_input,
-            inputs=[input_trigger, components['qwen_emotion_intensity'], components['qwen_temperature'], components['qwen_repetition_penalty'], components['qwen_top_p']],
-            outputs=[components['qwen_emotion_preset'], components['clone_status']]
-        )
+        # Refresh emotion dropdowns and auto-load first sample when tab is selected
+        def on_tab_select(sample_name):
+            """When tab is selected, refresh emotions and auto-load sample if not loaded."""
+            emotion_update = gr.update(choices=shared_state['get_emotion_choices'](shared_state['_active_emotions']))
 
-        # Refresh emotion dropdowns when tab is selected
+            # Auto-load first sample if one is selected
+            if sample_name:
+                audio, text, info = load_selected_sample(sample_name)
+                return emotion_update, audio, text, info
+
+            return emotion_update, None, "", ""
+
         components['voice_clone_tab'].select(
-            lambda: gr.update(choices=shared_state['get_emotion_choices'](shared_state['_active_emotions'])),
-            outputs=[components['qwen_emotion_preset']]
+            on_tab_select,
+            inputs=[components['sample_dropdown']],
+            outputs=[components['qwen_emotion_preset'], components['sample_audio'],
+                    components['sample_text'], components['sample_info']]
         )
 
 

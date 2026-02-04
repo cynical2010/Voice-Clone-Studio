@@ -168,6 +168,7 @@ __all__ = [
     'get_sample_choices',
     'get_available_samples',
     'get_prompt_cache_path',
+    'load_sample_details',
     'get_or_create_voice_prompt_standalone',
     'build_shared_state',
     'run_tool_standalone',
@@ -444,7 +445,7 @@ def get_available_samples():
                 samples.append({
                     "name": meta.get("name", json_file.stem),
                     "wav_path": str(wav_file),
-                    "ref_text": meta.get("text", ""),
+                    "ref_text": meta.get("Text", meta.get("text", "")),  # Try "Text" first, then "text"
                     "meta": meta
                 })
             except:
@@ -455,11 +456,91 @@ def get_prompt_cache_path(sample_name, model_size):
     """Get cache path for voice prompt."""
     from pathlib import Path
     project_root = Path(__file__).parent.parent.parent.parent
-    return project_root / "temp" / f"{sample_name}_{model_size}_prompt.pt"
+    samples_folder = project_root / "samples"
+    return samples_folder / f"{sample_name}_{model_size}.pt"
+
+def load_sample_details(sample_name):
+    """
+    Load full details for a sample: audio path, text, and info.
+    
+    Returns:
+        tuple: (audio_path, ref_text, info_string) or (None, "", "") if not found
+    """
+    if not sample_name:
+        return None, "", ""
+    
+    import soundfile as sf
+    samples = get_available_samples()
+    
+    for s in samples:
+        if s["name"] == sample_name:
+            # Check cache status for both model sizes
+            cache_small = get_prompt_cache_path(sample_name, "0.6B").exists()
+            cache_large = get_prompt_cache_path(sample_name, "1.7B").exists()
+
+            if cache_small and cache_large:
+                cache_status = "Qwen Cache: ⚡ Small, Large"
+            elif cache_small:
+                cache_status = "Qwen Cache: ⚡ Small"
+            elif cache_large:
+                cache_status = "Qwen Cache: ⚡ Large"
+            else:
+                cache_status = "Qwen Cache: 📦 Not cached"
+
+            try:
+                audio_data, sr = sf.read(s["wav_path"])
+                duration = len(audio_data) / sr
+                info = f"**Info**\n\nDuration: {duration:.2f}s | {cache_status}"
+            except:
+                info = f"**Info**\n\n{cache_status}"
+
+            # Add design instructions if this was a Voice Design sample
+            meta = s.get("meta", {})
+            if meta.get("Type") == "Voice Design" and meta.get("Instruct"):
+                info += f"\n\n**Voice Design:**\n{meta['Instruct']}"
+
+            return s["wav_path"], s["ref_text"], info
+    
+    return None, "", ""
 
 def get_or_create_voice_prompt_standalone(model, sample_name, wav_path, ref_text, model_size, progress_callback=None):
-    """Mock implementation for standalone - just return not cached."""
-    return None, False
+    """
+    Get cached voice prompt or create new one using tts_manager.
+    
+    This is the real implementation that handles voice prompt caching.
+    """
+    from modules.core_components.ai_models.tts_manager import get_tts_manager
+    
+    tts_manager = get_tts_manager()
+    
+    # Compute hash to check if sample has changed
+    sample_hash = tts_manager.compute_sample_hash(wav_path, ref_text)
+    
+    # Try to load from cache
+    prompt_items = tts_manager.load_voice_prompt(sample_name, sample_hash, model_size)
+    
+    if prompt_items is not None:
+        if progress_callback:
+            progress_callback(0.35, desc="Using cached voice prompt...")
+        return prompt_items, True  # True = was cached
+    
+    # Create new prompt
+    if progress_callback:
+        progress_callback(0.2, desc="Processing voice sample (first time)...")
+    
+    prompt_items = model.create_voice_clone_prompt(
+        ref_audio=wav_path,
+        ref_text=ref_text,
+        x_vector_only_mode=False,
+    )
+    
+    # Save to cache
+    if progress_callback:
+        progress_callback(0.35, desc="Caching voice prompt...")
+    
+    tts_manager.save_voice_prompt(sample_name, prompt_items, sample_hash, model_size)
+    
+    return prompt_items, False  # False = newly created
 
 
 def build_shared_state(user_config, active_emotions, directories, constants, managers=None, confirm_trigger=None, input_trigger=None):
@@ -529,7 +610,6 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
 
         # Emotion management
         'get_emotion_choices': get_emotion_choices,
-        'apply_emotion_preset': calculate_emotion_values,
 
         # Core utilities
         'play_completion_beep': play_completion_beep,
@@ -548,6 +628,7 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
         'get_sample_choices': get_sample_choices,
         'get_available_samples': get_available_samples,
         'get_prompt_cache_path': get_prompt_cache_path,
+        'load_sample_details': load_sample_details,
         'get_or_create_voice_prompt': get_or_create_voice_prompt_standalone,  # Default mock for standalone, main app overrides
         'refresh_samples': lambda: __import__('gradio').update(choices=get_sample_choices()),
     }
@@ -605,10 +686,12 @@ def run_tool_standalone(TabClass, port=7860, title="Tool - Standalone", extra_sh
     from modules.core_components.constants import (
         LANGUAGES,
         CUSTOM_VOICE_SPEAKERS,
-        MODEL_SIZES_CUSTOM
+        MODEL_SIZES_CUSTOM,
+        MODEL_SIZES_BASE,
+        MODEL_SIZES_VIBEVOICE,
+        VOICE_CLONE_OPTIONS,
+        DEFAULT_VOICE_CLONE_MODEL
     )
-
-    print(f"[*] Starting {TabClass.config.name} Tool - Standalone Mode")
 
     # Find project root
     project_root = CONFIG_FILE.parent
@@ -658,7 +741,11 @@ def run_tool_standalone(TabClass, port=7860, title="Tool - Standalone", extra_sh
             constants={
                 'LANGUAGES': LANGUAGES,
                 'CUSTOM_VOICE_SPEAKERS': CUSTOM_VOICE_SPEAKERS,
-                'MODEL_SIZES_CUSTOM': MODEL_SIZES_CUSTOM
+                'MODEL_SIZES_CUSTOM': MODEL_SIZES_CUSTOM,
+                'MODEL_SIZES_BASE': MODEL_SIZES_BASE,
+                'MODEL_SIZES_VIBEVOICE': MODEL_SIZES_VIBEVOICE,
+                'VOICE_CLONE_OPTIONS': VOICE_CLONE_OPTIONS,
+                'DEFAULT_VOICE_CLONE_MODEL': DEFAULT_VOICE_CLONE_MODEL
             },
             confirm_trigger=confirm_trigger,
             input_trigger=input_trigger
@@ -686,5 +773,6 @@ def run_tool_standalone(TabClass, port=7860, title="Tool - Standalone", extra_sh
         server_port=port,
         server_name="127.0.0.1",
         share=False,
-        inbrowser=False
+        inbrowser=False,
+        allowed_paths=[str(SAMPLES_DIR), str(OUTPUT_DIR), str(DATASETS_DIR)]
     )

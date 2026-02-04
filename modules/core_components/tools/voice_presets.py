@@ -3,6 +3,12 @@ Voice Presets Tab
 
 Use Qwen3-TTS pre-trained models or custom trained models with style control.
 """
+# Setup path for standalone testing BEFORE imports
+if __name__ == "__main__":
+    import sys
+    from pathlib import Path
+    project_root = Path(__file__).parent.parent.parent.parent
+    sys.path.insert(0, str(project_root))
 
 import sys
 from pathlib import Path
@@ -54,6 +60,9 @@ class VoicePresetsTab(Tab):
             components['voice_presets_tab'] = voice_presets_tab
             gr.Markdown("Use Qwen3-TTS pre-trained models or Custom Trained models with style control")
 
+            initial_voice_type = _user_config.get("voice_type", "Premium Speakers")
+            is_premium = (initial_voice_type.strip() == "Premium Speakers")
+
             with gr.Row():
                 # Left - Speaker selection
                 with gr.Column(scale=1):
@@ -61,12 +70,12 @@ class VoicePresetsTab(Tab):
 
                     components['voice_type_radio'] = gr.Radio(
                         choices=["Premium Speakers", "Trained Models"],
-                        value=_user_config.get("voice_type", "Premium Speakers"),
+                        value=initial_voice_type,
                         label="Voice Source"
                     )
 
                     # Premium speakers dropdown
-                    components['premium_section'] = gr.Column(visible=True)
+                    components['premium_section'] = gr.Column(visible=is_premium)
                     with components['premium_section']:
                         speaker_choices = CUSTOM_VOICE_SPEAKERS
                         components['custom_speaker_dropdown'] = gr.Dropdown(
@@ -107,7 +116,7 @@ class VoicePresetsTab(Tab):
                             padding=True
                         )
                     # Trained models dropdown
-                    components['trained_section'] = gr.Column(visible=False)
+                    components['trained_section'] = gr.Column(visible=not is_premium)
                     with components['trained_section']:
                         def get_initial_model_list():
                             """Get initial list of trained models for dropdown initialization."""
@@ -166,7 +175,8 @@ class VoicePresetsTab(Tab):
                         label="Style Instructions (Optional)",
                         placeholder="e.g., 'Speak with excitement' or 'Very sad and slow' or '用愤怒的语气说'",
                         lines=2,
-                        info="Control emotion, tone, speed, etc."
+                        info="Control emotion, tone, speed, etc.",
+                        visible=is_premium
                     )
 
                     with gr.Row():
@@ -184,9 +194,8 @@ class VoicePresetsTab(Tab):
                         )
 
                     # Qwen Advanced Parameters (always visible, emotion controls match voice type)
-                    initial_voice_type = _user_config.get("voice_type", "Premium Speakers")
-                    emotion_visible = (initial_voice_type == "Trained Models")
-                    
+                    emotion_visible = not is_premium
+
                     custom_params = create_qwen_advanced_params(
                         emotions_dict=_active_emotions,
                         include_emotion=True,

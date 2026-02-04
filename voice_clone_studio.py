@@ -200,10 +200,8 @@ def save_config(config):
 # Load config first
 _user_config = load_config()
 
-
 # Load active emotions from config
 _active_emotions = load_emotions_from_config(_user_config)
-
 
 # Initialize directories from config
 SAMPLES_DIR = Path(__file__).parent / _user_config.get("samples_folder", "samples")
@@ -225,7 +223,7 @@ try:
             elif f.is_dir():
                 shutil.rmtree(f)
         except Exception:
-            pass # Ignore individual file errors
+            pass  # Ignore individual file errors
 except Exception as e:
     print(f"Warning: Could not cleanup temp folder: {e}")
 
@@ -2461,9 +2459,9 @@ def generate_design_then_clone(design_text, design_instruct, clone_text, languag
         # Ensure numpy
         audio_data = ref_wavs[0]
         if hasattr(audio_data, "cpu"):
-             audio_data = audio_data.cpu().numpy()
+            audio_data = audio_data.cpu().numpy()
         elif hasattr(audio_data, "numpy"):
-             audio_data = audio_data.numpy()
+            audio_data = audio_data.numpy()
 
         # Save the reference
         ref_file = OUTPUT_DIR / f"design_ref_{timestamp}.wav"
@@ -2633,10 +2631,10 @@ def extract_audio_from_video(video_path):
         
         # Check if failed due to permission/path issues
         if result.returncode != 0 and ("Permission denied" in result.stderr or "No such file" in result.stderr):
-             print(f"ffmpeg failed writing to {audio_output}: {result.stderr}. Using system temp.")
-             audio_output = Path(tempfile.gettempdir()) / filename
-             cmd[-1] = str(audio_output)
-             result = subprocess.run(cmd, capture_output=True, text=True)
+            print(f"ffmpeg failed writing to {audio_output}: {result.stderr}. Using system temp.")
+            audio_output = Path(tempfile.gettempdir()) / filename
+            cmd[-1] = str(audio_output)
+            result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode == 0 and audio_output.exists():
             return str(audio_output)
@@ -2705,21 +2703,21 @@ def normalize_audio(audio_file):
         timestamp = datetime.now().strftime('%H%M%S')
         filename = f"normalized_{timestamp}.wav"
         temp_path = TEMP_DIR / filename
-        
+
         try:
             sf.write(str(temp_path), normalized, sr)
         except (PermissionError, OSError) as e:
             # Fallback to system temp
             try:
-                 print(f"⚠ Warning: Could not write to {temp_path} ({e}). Falling back to system temp.")
-                 temp_path = Path(tempfile.gettempdir()) / filename
-                 sf.write(str(temp_path), normalized, sr)
+                print(f"⚠ Warning: Could not write to {temp_path} ({e}). Falling back to system temp.")
+                temp_path = Path(tempfile.gettempdir()) / filename
+                sf.write(str(temp_path), normalized, sr)
             except Exception as fbe:
-                 print(f"Fallback save failed: {fbe}")
-                 raise RuntimeError(
-                     f"Failed to save normalized audio to both {TEMP_DIR} and system temp. "
-                     f"Primary error: {e}; fallback error: {fbe}"
-                 ) from fbe
+                print(f"Fallback save failed: {fbe}")
+                raise RuntimeError(
+                    f"Failed to save normalized audio to both {TEMP_DIR} and system temp. "
+                    f"Primary error: {e}; fallback error: {fbe}"
+                ) from fbe
 
         # Force file flush on Windows to prevent connection reset errors
         if platform.system() == "Windows":
@@ -2806,15 +2804,15 @@ def clean_audio(audio_file, progress=gr.Progress()):
 
         # Robust save with fallback for permission/system errors
         try:
-             # Try saving to configured temp dir
+            # Try saving to configured temp dir
             save_audio(str(output_path), enhanced_audio, target_sr)
         except (PermissionError, OSError, RuntimeError) as e:
             msg = str(e)
             if "Permission denied" in msg or "System error" in msg:
-                 import tempfile
-                 print(f"⚠ Warning: Could not write to {output_path} ({msg}). Falling back to system temp.")
-                 output_path = Path(tempfile.gettempdir()) / output_filename
-                 save_audio(str(output_path), enhanced_audio, target_sr)
+                import tempfile
+                print(f"⚠ Warning: Could not write to {output_path} ({msg}). Falling back to system temp.")
+                output_path = Path(tempfile.gettempdir()) / output_filename
+                save_audio(str(output_path), enhanced_audio, target_sr)
             else:
                 raise e
 
@@ -3450,13 +3448,13 @@ def convert_audio_to_finetune_format(audio_path, progress=gr.Progress()):
                     output_path.unlink()
                 shutil.move(str(temp_output), str(output_path))
             except Exception:
-                 if temp_output.exists():
-                     try:
-                         temp_output.unlink()
-                     except Exception:
-                         # Ignore errors during best-effort cleanup of the temporary file
-                         pass
-                 raise
+                if temp_output.exists():
+                    try:
+                        temp_output.unlink()
+                    except Exception:
+                        # Ignore errors during best-effort cleanup of the temporary file
+                        pass
+                raise
 
         progress(1.0, desc="Done!")
         return str(output_path), "Converted to 24kHz 16-bit mono"
@@ -6520,28 +6518,28 @@ def create_ui():
                     container=False
                 )
 
-                help_content = gr.HTML(
-                    value=format_help_html(ui_help.show_voice_clone_help()),
-                    container=True,   # give it the normal block/card container
-                    padding=True      # match block padding
-                )
+                # help_content = gr.HTML(
+                #     value=format_help_html(ui_help.show_voice_clone_help()),
+                #     container=True,   # give it the normal block/card container
+                #     padding=True      # match block padding
+                # )
 
-                # Map radio selection to help function
-                def show_help(topic):
-                    help_map = {
-                        "Voice Clone": ui_help.show_voice_clone_help,
-                        "Conversation": ui_help.show_conversation_help,
-                        "Voice Presets": ui_help.show_voice_presets_help,
-                        "Voice Design": ui_help.show_voice_design_help,
-                        "Prep Samples": ui_help.show_prep_samples_help,
-                        "Finetune Dataset": ui_help.show_finetune_help,
-                        "Train Model": ui_help.show_train_help,
-                        "Tips & Tricks": ui_help.show_tips_help
-                    }
-                    return format_help_html(help_map[topic]())
+                # # Map radio selection to help function
+                # def show_help(topic):
+                #     help_map = {
+                #         "Voice Clone": ui_help.show_voice_clone_help,
+                #         "Conversation": ui_help.show_conversation_help,
+                #         "Voice Presets": ui_help.show_voice_presets_help,
+                #         "Voice Design": ui_help.show_voice_design_help,
+                #         "Prep Samples": ui_help.show_prep_samples_help,
+                #         "Finetune Dataset": ui_help.show_finetune_help,
+                #         "Train Model": ui_help.show_train_help,
+                #         "Tips & Tricks": ui_help.show_tips_help
+                #     }
+                #     return format_help_html(help_map[topic]())
 
-                # Event handler for radio selection
-                help_topic.change(fn=show_help, inputs=help_topic, outputs=help_content)
+                # # Event handler for radio selection
+                # help_topic.change(fn=show_help, inputs=help_topic, outputs=help_content)
 
             # ============== TAB 10: Settings ==============
             with gr.TabItem("⚙️"):
