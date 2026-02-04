@@ -6,13 +6,13 @@ Manage and prepare finetuning datasets.
 
 import gradio as gr
 from textwrap import dedent
-from modules.core_components.tools.base import Tab, TabConfig
+from modules.core_components.tool_base import Tab, TabConfig
 # format_help_html comes from shared_state
 
 
 class FinetuneDatasetTab(Tab):
     """Finetune Dataset tab implementation."""
-    
+
     config = TabConfig(
         name="Finetune Dataset",
         module_name="tab_finetune_dataset",
@@ -20,12 +20,12 @@ class FinetuneDatasetTab(Tab):
         enabled=True,
         category="preparation"
     )
-    
+
     @classmethod
     def create_tab(cls, shared_state):
         """Create Finetune Dataset tab UI."""
         components = {}
-        
+
         # Get helper functions and config
         format_help_html = shared_state['format_help_html']
         get_dataset_folders = shared_state['get_dataset_folders']
@@ -46,7 +46,7 @@ class FinetuneDatasetTab(Tab):
         show_confirmation_modal_js = shared_state['show_confirmation_modal_js']
         save_preference = shared_state['save_preference']
         confirm_trigger = shared_state['confirm_trigger']
-        
+
         with gr.TabItem("Finetune Dataset"):
             gr.Markdown("Manage and prepare your finetuning dataset")
             with gr.Row():
@@ -161,11 +161,11 @@ class FinetuneDatasetTab(Tab):
                         )
 
         return components
-    
+
     @classmethod
     def setup_events(cls, components, shared_state):
         """Wire up Finetune Dataset tab events."""
-        
+
         # Get helper functions
         get_dataset_folders = shared_state['get_dataset_folders']
         get_dataset_files = shared_state['get_dataset_files']
@@ -182,7 +182,7 @@ class FinetuneDatasetTab(Tab):
         save_preference = shared_state['save_preference']
         confirm_trigger = shared_state['confirm_trigger']
         DATASETS_DIR = shared_state['DATASETS_DIR']
-        
+
         def refresh_folder_list():
             """Refresh folder list."""
             folders = get_dataset_folders()

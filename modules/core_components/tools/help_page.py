@@ -2,12 +2,20 @@
 Help Guide Tab
 
 Displays documentation and tips for using Voice Clone Studio.
+
+Standalone testing:
+    python -m modules.core_components.tools.help_page
 """
+# Setup path for standalone testing BEFORE imports
+if __name__ == "__main__":
+    import sys
+    from pathlib import Path
+    project_root = Path(__file__).parent.parent.parent.parent
+    sys.path.insert(0, str(project_root))
 
 import gradio as gr
 from textwrap import dedent
-from modules.core_components.tools.base import Tab, TabConfig
-# format_help_html comes from shared_state
+from modules.core_components.tool_base import Tab, TabConfig
 
 
 # Help content functions
@@ -386,23 +394,26 @@ def show_tips_help():
 
 class HelpGuideTab(Tab):
     """Help Guide tab implementation."""
-    
+
     config = TabConfig(
         name="Help Guide",
-        module_name="tab_help",
+        module_name="tab_help_page",
         description="Documentation and usage tips",
         enabled=True,
         category="utility"
     )
-    
+
     @classmethod
     def create_tab(cls, shared_state):
         """Create Help Guide tab UI."""
         components = {}
-        
+
+        # Extract needed items from shared_state
+        format_help_html = shared_state.get('format_help_html')
+
         with gr.TabItem("Help Guide"):
             gr.Markdown("# Voice Clone Studio - Help & Guide")
-            
+
             components['help_topic'] = gr.Radio(
                 choices=[
                     "Voice Clone",
@@ -419,19 +430,22 @@ class HelpGuideTab(Tab):
                 interactive=True,
                 container=False
             )
-            
+
             components['help_content'] = gr.HTML(
                 value=format_help_html(show_voice_clone_help()),
                 container=True,
                 padding=True
             )
-        
+
         return components
-    
+
     @classmethod
     def setup_events(cls, components, shared_state):
         """Wire up Help Guide events."""
-        
+
+        # Extract needed items from shared_state
+        format_help_html = shared_state.get('format_help_html')
+
         def show_help(topic):
             """Show help for selected topic."""
             help_map = {
@@ -445,7 +459,7 @@ class HelpGuideTab(Tab):
                 "Tips & Tricks": show_tips_help
             }
             return format_help_html(help_map[topic]())
-        
+
         # Event handler for radio selection
         components['help_topic'].change(
             fn=show_help,
@@ -456,3 +470,9 @@ class HelpGuideTab(Tab):
 
 # Export for tab registry
 get_tab_class = lambda: HelpGuideTab
+
+
+# Standalone testing
+if __name__ == "__main__":
+    from modules.core_components.tools import run_tool_standalone
+    run_tool_standalone(HelpGuideTab, port=7869, title="Help Guide - Standalone")

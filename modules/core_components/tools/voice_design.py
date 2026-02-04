@@ -19,7 +19,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from modules.core_components.tools.base import Tab, TabConfig
+from modules.core_components.tool_base import Tab, TabConfig
 from modules.core_components.ai_models.tts_manager import get_tts_manager
 
 

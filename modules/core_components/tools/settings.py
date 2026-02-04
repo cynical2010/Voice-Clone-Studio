@@ -2,11 +2,20 @@
 Settings Tab
 
 Configure global application settings.
+
+Standalone testing:
+    python -m modules.core_components.tools.settings
 """
+# Setup path for standalone testing BEFORE imports
+if __name__ == "__main__":
+    import sys
+    from pathlib import Path
+    project_root = Path(__file__).parent.parent.parent.parent
+    sys.path.insert(0, str(project_root))
 
 import gradio as gr
 from pathlib import Path
-from modules.core_components.tools.base import Tab, TabConfig
+from modules.core_components.tool_base import Tab, TabConfig
 
 
 class SettingsTab(Tab):
@@ -25,14 +34,8 @@ class SettingsTab(Tab):
         """Create Settings tab UI."""
         components = {}
         
-        # Get helper functions and config
-        _user_config = shared_state['_user_config']
-        download_model_from_huggingface = shared_state['download_model_from_huggingface']
-        save_config = shared_state['save_config']
-        save_preference = shared_state['save_preference']
-        SAMPLES_DIR = shared_state['SAMPLES_DIR']
-        OUTPUT_DIR = shared_state['OUTPUT_DIR']
-        DATASETS_DIR = shared_state['DATASETS_DIR']
+        # Extract needed items from shared_state
+        _user_config = shared_state.get('_user_config', {})
         
         with gr.TabItem("⚙️"):
             gr.Markdown("# ⚙️ Settings")
@@ -180,11 +183,11 @@ class SettingsTab(Tab):
     def setup_events(cls, components, shared_state):
         """Wire up Settings tab events."""
         
-        # Get helper functions
-        _user_config = shared_state['_user_config']
-        download_model_from_huggingface = shared_state['download_model_from_huggingface']
-        save_config = shared_state['save_config']
-        save_preference = shared_state['save_preference']
+        # Extract needed items from shared_state
+        _user_config = shared_state.get('_user_config', {})
+        save_preference = shared_state.get('save_preference')
+        save_config = shared_state.get('save_config')
+        download_model_from_huggingface = shared_state.get('download_model_from_huggingface')
         
         # Save low CPU memory setting
         components['settings_low_cpu_mem'].change(
@@ -192,8 +195,6 @@ class SettingsTab(Tab):
             inputs=[components['settings_low_cpu_mem']],
             outputs=[]
         )
-
-        # Save attention mechanism setting
         components['settings_attention_mechanism'].change(
             lambda x: save_preference("attention_mechanism", x),
             inputs=[components['settings_attention_mechanism']],
@@ -306,3 +307,24 @@ class SettingsTab(Tab):
 
 # Export for tab registry
 get_tab_class = lambda: SettingsTab
+
+
+# Standalone testing
+if __name__ == "__main__":
+    from modules.core_components.tools import run_tool_standalone
+    
+    # Settings needs download_model_from_huggingface function
+    def mock_download_model(model_id, progress=None):
+        """Mock download function for standalone testing."""
+        return False, f"Download not available in standalone mode. Model: {model_id}", None
+    
+    extra_shared_state = {
+        'download_model_from_huggingface': mock_download_model
+    }
+    
+    run_tool_standalone(
+        SettingsTab,
+        port=7870,
+        title="Settings - Standalone",
+        extra_shared_state=extra_shared_state
+    )

@@ -18,7 +18,7 @@ from datetime import datetime
 from textwrap import dedent
 from pathlib import Path
 
-from modules.core_components.tools.base import Tab, TabConfig
+from modules.core_components.tool_base import Tab, TabConfig
 from modules.core_components.ai_models.tts_manager import get_tts_manager
 from modules.core_components.emotion_manager import process_save_emotion_result, process_delete_emotion_result
 

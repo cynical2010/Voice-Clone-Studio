@@ -11,10 +11,10 @@ import json
 import markdown
 import platform
 from pathlib import Path
-from modules.core_components.tools.base import TabConfig, Tab
+from modules.core_components.tool_base import TabConfig, Tab
 
 # Import all tool modules here
-from modules.core_components.tools import help
+from modules.core_components.tools import help_page
 from modules.core_components.tools import output_history
 from modules.core_components.tools import voice_design
 from modules.core_components.tools import voice_clone
@@ -44,7 +44,7 @@ ALL_TABS = {
 #     'finetune_dataset': (finetune_dataset, finetune_dataset.FinetuneDatasetTab.config),
 #     'train_model': (train_model, train_model.TrainModelTab.config),
 #     'settings': (settings, settings.SettingsTab.config),
-#     'help': (help, help.HelpGuideTab.config),
+#     'help_page': (help_page, help_page.HelpGuideTab.config),
 # }
 
 
@@ -462,16 +462,16 @@ def get_prompt_cache_path(sample_name, model_size):
 def load_sample_details(sample_name):
     """
     Load full details for a sample: audio path, text, and info.
-    
+
     Returns:
         tuple: (audio_path, ref_text, info_string) or (None, "", "") if not found
     """
     if not sample_name:
         return None, "", ""
-    
+
     import soundfile as sf
     samples = get_available_samples()
-    
+
     for s in samples:
         if s["name"] == sample_name:
             # Check cache status for both model sizes
@@ -500,46 +500,46 @@ def load_sample_details(sample_name):
                 info += f"\n\n**Voice Design:**\n{meta['Instruct']}"
 
             return s["wav_path"], s["ref_text"], info
-    
+
     return None, "", ""
 
 def get_or_create_voice_prompt_standalone(model, sample_name, wav_path, ref_text, model_size, progress_callback=None):
     """
     Get cached voice prompt or create new one using tts_manager.
-    
+
     This is the real implementation that handles voice prompt caching.
     """
     from modules.core_components.ai_models.tts_manager import get_tts_manager
-    
+
     tts_manager = get_tts_manager()
-    
+
     # Compute hash to check if sample has changed
     sample_hash = tts_manager.compute_sample_hash(wav_path, ref_text)
-    
+
     # Try to load from cache
     prompt_items = tts_manager.load_voice_prompt(sample_name, sample_hash, model_size)
-    
+
     if prompt_items is not None:
         if progress_callback:
             progress_callback(0.35, desc="Using cached voice prompt...")
         return prompt_items, True  # True = was cached
-    
+
     # Create new prompt
     if progress_callback:
         progress_callback(0.2, desc="Processing voice sample (first time)...")
-    
+
     prompt_items = model.create_voice_clone_prompt(
         ref_audio=wav_path,
         ref_text=ref_text,
         x_vector_only_mode=False,
     )
-    
+
     # Save to cache
     if progress_callback:
         progress_callback(0.35, desc="Caching voice prompt...")
-    
+
     tts_manager.save_voice_prompt(sample_name, prompt_items, sample_hash, model_size)
-    
+
     return prompt_items, False  # False = newly created
 
 
@@ -576,6 +576,50 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
         create_pause_controls
     )
     from modules.core_components.ai_models.model_utils import get_trained_models as get_trained_models_util
+
+    # Import audio utilities BEFORE building shared_state
+    from modules.core_components.audio_utils import (
+        is_audio_file as is_audio_file_util,
+        is_video_file as is_video_file_util,
+        extract_audio_from_video as extract_audio_from_video_util,
+        get_audio_duration as get_audio_duration_util,
+        format_time as format_time_util,
+        normalize_audio as normalize_audio_util,
+        convert_to_mono as convert_to_mono_util,
+        save_audio_as_sample as save_as_sample_util,
+        clean_audio as clean_audio_util
+    )
+
+    # Check if DeepFilterNet is available
+    DEEPFILTER_AVAILABLE = constants.get('DEEPFILTER_AVAILABLE', False)
+
+    def clean_audio_standalone(audio_file, progress=None):
+        """Clean audio using DeepFilterNet if available, otherwise return unchanged."""
+        if not DEEPFILTER_AVAILABLE:
+            if progress:
+                progress(1.0, desc="DeepFilterNet not available")
+            print("[WARN] DeepFilterNet not available in this environment")
+            return audio_file
+
+        # DeepFilterNet is available - create a lazy loader for the model
+        def get_deepfilter_lazy():
+            """Lazy load DeepFilterNet model for standalone mode."""
+            from df.enhance import init_df
+
+            # Cache the model (simple module-level caching)
+            if not hasattr(get_deepfilter_lazy, '_model_cache'):
+                print("Loading DeepFilterNet model...")
+                res = init_df()
+                if isinstance(res, tuple):
+                    model, state, params = res
+                else:
+                    model, state, params = res, None, None
+                get_deepfilter_lazy._model_cache = (model, state, params)
+
+            return get_deepfilter_lazy._model_cache
+
+        # Use the real clean_audio function with lazy model loader
+        return clean_audio_util(audio_file, directories.get('TEMP_DIR'), get_deepfilter_lazy, progress)
 
     shared_state = {
         # Config & Emotions
@@ -631,6 +675,17 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
         'load_sample_details': load_sample_details,
         'get_or_create_voice_prompt': get_or_create_voice_prompt_standalone,  # Default mock for standalone, main app overrides
         'refresh_samples': lambda: __import__('gradio').update(choices=get_sample_choices()),
+
+        # Audio utilities (Prep Samples tool) - imported from audio_utils
+        'is_audio_file': is_audio_file_util,
+        'is_video_file': is_video_file_util,
+        'extract_audio_from_video': lambda path: extract_audio_from_video_util(path, directories.get('TEMP_DIR')),
+        'get_audio_duration': get_audio_duration_util,
+        'format_time': format_time_util,
+        'normalize_audio': lambda audio: normalize_audio_util(audio, directories.get('TEMP_DIR')),
+        'convert_to_mono': lambda audio: convert_to_mono_util(audio, directories.get('TEMP_DIR')),
+        'clean_audio': lambda audio, progress=None: clean_audio_standalone(audio, progress),
+        'save_as_sample': lambda audio, text, name: save_as_sample_util(audio, text, name, directories.get('SAMPLES_DIR')),
     }
 
     # Lambdas that reference shared_state (must be added after dict creation)
