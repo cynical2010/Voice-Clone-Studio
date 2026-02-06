@@ -16,6 +16,7 @@ import gradio as gr
 import re
 from pathlib import Path
 from modules.core_components.tool_base import Tool, ToolConfig
+from gradio_filelister import FileLister
 
 
 class PrepSamplesTool(Tool):
@@ -48,16 +49,14 @@ class PrepSamplesTool(Tool):
                 with gr.Column(scale=1):
                     gr.Markdown("### Existing Samples")
 
-                    existing_sample_choices = get_sample_choices()
-                    components['existing_sample_dropdown'] = gr.Dropdown(
-                        choices=existing_sample_choices,
-                        value=existing_sample_choices[0] if existing_sample_choices else None,
-                        label="Browse Samples",
-                        info="Select a sample to preview or edit"
+                    components['sample_lister'] = FileLister(
+                        value=get_sample_choices(),
+                        height=250,
+                        show_footer=False,
+                        interactive=True,
                     )
 
                     with gr.Row():
-                        components['preview_sample_btn'] = gr.Button("Preview Sample", size="sm")
                         components['refresh_preview_btn'] = gr.Button("Refresh", size="sm")
                         components['load_sample_btn'] = gr.Button("Load to Editor", size="sm")
 
@@ -68,7 +67,8 @@ class PrepSamplesTool(Tool):
                     components['existing_sample_audio'] = gr.Audio(
                         label="Sample Preview",
                         type="filepath",
-                        interactive=False
+                        interactive=False,
+                        elem_id="prep-sample-audio"
                     )
 
                     components['existing_sample_text'] = gr.Textbox(
@@ -82,30 +82,6 @@ class PrepSamplesTool(Tool):
                         interactive=False,
                         lines=3
                     )
-
-                    # Transcription settings
-                    gr.Markdown("### Transcription Settings")
-
-                    with gr.Row():
-                        components['whisper_language'] = gr.Dropdown(
-                            choices=["Auto-detect"] + LANGUAGES[1:],
-                            value=_user_config.get("whisper_language", "Auto-detect"),
-                            label="Language",
-                        )
-
-                        available_models = ['VibeVoice ASR']
-                        if WHISPER_AVAILABLE:
-                            available_models.insert(0, 'Whisper')
-
-                        default_model = _user_config.get("transcribe_model", "Whisper")
-                        if default_model not in available_models:
-                            default_model = available_models[0]
-
-                        components['transcribe_model'] = gr.Dropdown(
-                            choices=available_models,
-                            value=default_model,
-                            label="Model",
-                        )
 
                 # Right column - Audio/Video editing
                 with gr.Column(scale=2):
@@ -132,12 +108,6 @@ class PrepSamplesTool(Tool):
                         components['normalize_btn'] = gr.Button("Normalize Volume", scale=2, size="sm")
                         components['mono_btn'] = gr.Button("Convert to Mono", scale=2, size="sm")
 
-                    components['prep_audio_info'] = gr.Textbox(
-                        label="Audio Info",
-                        interactive=False,
-                        lines=2
-                    )
-
                     gr.Markdown("### Transcription / Reference Text")
                     components['transcription_output'] = gr.Textbox(
                         label="Text",
@@ -151,7 +121,29 @@ class PrepSamplesTool(Tool):
                         components['transcribe_btn'] = gr.Button("Transcribe Audio", variant="primary")
                         components['save_sample_btn'] = gr.Button("Save Sample", variant="primary")
 
-                    components['save_status'] = gr.Textbox(label="Status", interactive=False, lines=2)
+                    with gr.Row():
+                        # Transcription settings
+                        with gr.Row():
+                            components['whisper_language'] = gr.Dropdown(
+                                choices=["Auto-detect"] + LANGUAGES[1:],
+                                value=_user_config.get("whisper_language", "Auto-detect"),
+                                label="Language",
+                            )
+
+                            available_models = ['VibeVoice ASR']
+                            if WHISPER_AVAILABLE:
+                                available_models.insert(0, 'Whisper')
+
+                            default_model = _user_config.get("transcribe_model", "Whisper")
+                            if default_model not in available_models:
+                                default_model = available_models[0]
+
+                            components['transcribe_model'] = gr.Dropdown(
+                                choices=available_models,
+                                value=default_model,
+                                label="Model",
+                            )
+                        components['prep_status'] = gr.Textbox(label="Status", interactive=False, lines=1)
 
             return components
 
@@ -190,6 +182,16 @@ class PrepSamplesTool(Tool):
         get_vibe_voice_model = shared_state.get('get_vibe_voice_model')
         get_deepfilter_model = shared_state.get('get_deepfilter_model')
 
+        def get_selected_sample_name(lister_value):
+            """Extract selected sample name from FileLister value (strips .wav extension)."""
+            if not lister_value:
+                return None
+            selected = lister_value.get("selected", [])
+            if len(selected) == 1:
+                from modules.core_components.tools import strip_sample_extension
+                return strip_sample_extension(selected[0])
+            return None
+
         def on_prep_audio_load_handler(audio_file):
             """When audio/video is loaded, extract info and convert if needed."""
             if audio_file is None:
@@ -199,14 +201,14 @@ class PrepSamplesTool(Tool):
                 # Check if video
                 if is_video_file(audio_file):
                     print(f"Video file detected: {Path(audio_file).name}")
-                    audio_path = extract_audio_from_video(audio_file)
+                    audio_path, message = extract_audio_from_video(audio_file)
 
                     if audio_path:
                         duration = get_audio_duration(audio_path)
                         info = f"[VIDEO] Audio extracted\nDuration: {format_time(duration)} ({duration:.2f}s)"
                         return audio_path, info
                     else:
-                        return None, "[ERROR] Failed to extract audio. Ensure file has audio track."
+                        return None, message
 
                 # Audio file
                 elif is_audio_file(audio_file):
@@ -214,13 +216,14 @@ class PrepSamplesTool(Tool):
                     info = f"Duration: {format_time(duration)} ({duration:.2f}s)"
                     return audio_file, info
                 else:
-                    return None, "[ERROR] Unsupported file type. Upload audio (.wav, .mp3) or video (.mp4, .mov)"
+                    return None, message
 
             except Exception as e:
                 return None, f"Error: {str(e)}"
 
-        def load_sample_to_editor(sample_name):
+        def load_sample_to_editor(lister_value):
             """Load sample into the working audio editor."""
+            sample_name = get_selected_sample_name(lister_value)
             if not sample_name:
                 return None, None, "", "No sample selected", gr.update(visible=False)
 
@@ -234,34 +237,32 @@ class PrepSamplesTool(Tool):
 
             return None, None, "", "Sample not found", gr.update(visible=False)
 
-        def load_existing_sample_handler(sample_name):
-            """Load an existing sample for preview."""
+        def on_sample_selection_change(lister_value):
+            """Handle sample selection change from FileLister."""
+            sample_name = get_selected_sample_name(lister_value)
             if not sample_name:
-                return None, "", "No sample selected"
+                return None, "", ""
 
             audio_path, ref_text, info_text = load_sample_details(sample_name)
             return audio_path, ref_text, info_text
 
         def refresh_samples_handler():
-            """Refresh samples dropdown."""
-            return gr.update(choices=get_sample_choices())
+            """Refresh samples list."""
+            return get_sample_choices()
 
-        def delete_sample_handler(action, sample_name):
+        def delete_sample_handler(action, lister_value):
             """Delete a sample (wav, json, and cache files)."""
-            # Ignore empty calls or wrong context
+            # Ignore empty calls or wrong context (cancel is handled in JS)
             if not action or not action.strip() or not action.startswith("sample_"):
-                return gr.update(), gr.update(), gr.update()
-
-            # Handle cancel
-            if "cancel" in action:
-                return "Deletion cancelled", gr.update(), gr.update()
+                return gr.update(), gr.update()
 
             # Only process confirm
             if "confirm" not in action:
-                return gr.update(), gr.update(), gr.update()
+                return gr.update(), gr.update()
 
+            sample_name = get_selected_sample_name(lister_value)
             if not sample_name:
-                return "[ERROR] No sample selected", gr.update(), gr.update()
+                return "[ERROR] No sample selected", gr.update()
 
             try:
                 import os
@@ -282,20 +283,14 @@ class PrepSamplesTool(Tool):
                     if cache_path.exists():
                         os.remove(cache_path)
 
-                # Refresh choices
-                choices = get_sample_choices()
-
-                return (
-                    f"Sample '{sample_name}' deleted",
-                    gr.update(choices=choices),
-                    gr.update(choices=choices)
-                )
+                return f"Sample '{sample_name}' deleted", get_sample_choices()
 
             except Exception as e:
-                return f"[ERROR] Error deleting sample: {str(e)}", gr.update(), gr.update()
+                return f"[ERROR] Error deleting sample: {str(e)}", gr.update()
 
-        def clear_sample_cache_handler(sample_name):
+        def clear_sample_cache_handler(lister_value):
             """Clear voice prompt cache for a sample."""
+            sample_name = get_selected_sample_name(lister_value)
             if not sample_name:
                 return "[ERROR] No sample selected", gr.update()
 
@@ -395,50 +390,48 @@ class PrepSamplesTool(Tool):
         def handle_save_sample_input(input_value, audio, transcription):
             """Process save sample modal input."""
             if not input_value or not input_value.startswith("save_sample_"):
-                return gr.update(), gr.update(), gr.update()
+                return gr.update(), gr.update()
 
             parts = input_value.split("_")
             if len(parts) >= 3:
                 if parts[2] == "cancel":
-                    return gr.update(), gr.update(), gr.update()
+                    return gr.update(), gr.update()
 
                 sample_name = "_".join(parts[2:-1])
-                status, dropdown1, dropdown2, _ = save_as_sample(audio, transcription, sample_name)
-                return status, dropdown1, dropdown2
+                save_as_sample(audio, transcription, sample_name)
+                return f"Sample saved as '{sample_name}'", get_sample_choices()
 
-            return gr.update(), gr.update(), gr.update()
+            return gr.update(), gr.update()
 
         # Wire up events
 
         # Load sample to editor
         components['load_sample_btn'].click(
             load_sample_to_editor,
-            inputs=[components['existing_sample_dropdown']],
+            inputs=[components['sample_lister']],
             outputs=[components['prep_file_input'], components['prep_audio_editor'],
-                     components['transcription_output'], components['prep_audio_info'],
+                     components['transcription_output'], components['prep_status'],
                      components['prep_audio_editor']]
         )
 
-        # Preview on dropdown change
-        components['existing_sample_dropdown'].change(
-            load_existing_sample_handler,
-            inputs=[components['existing_sample_dropdown']],
+        # Preview on selection change (click = display, no autoplay)
+        components['sample_lister'].change(
+            on_sample_selection_change,
+            inputs=[components['sample_lister']],
             outputs=[components['existing_sample_audio'], components['existing_sample_text'],
                      components['existing_sample_info']]
         )
 
-        # Preview button
-        components['preview_sample_btn'].click(
-            load_existing_sample_handler,
-            inputs=[components['existing_sample_dropdown']],
-            outputs=[components['existing_sample_audio'], components['existing_sample_text'],
-                     components['existing_sample_info']]
+        # Double-click = play sample audio via JS play button click
+        components['sample_lister'].double_click(
+            fn=None,
+            js="() => { setTimeout(() => { const btn = document.querySelector('#prep-sample-audio .play-pause-button'); if (btn) btn.click(); }, 150); }"
         )
 
         # Refresh button
         components['refresh_preview_btn'].click(
             refresh_samples_handler,
-            outputs=[components['existing_sample_dropdown']]
+            outputs=[components['sample_lister']]
         )
 
         # Delete sample modal
@@ -453,26 +446,24 @@ class PrepSamplesTool(Tool):
         )
 
         # Delete confirmation handler
-        # Update both prep samples dropdown and main app dropdown (if exists)
-        main_sample_dropdown = shared_state.get('sample_dropdown', components['existing_sample_dropdown'])
         confirm_trigger.change(
             delete_sample_handler,
-            inputs=[confirm_trigger, components['existing_sample_dropdown']],
-            outputs=[components['save_status'], components['existing_sample_dropdown'], main_sample_dropdown]
+            inputs=[confirm_trigger, components['sample_lister']],
+            outputs=[components['prep_status'], components['sample_lister']]
         )
 
         # Clear cache
         components['clear_cache_btn'].click(
             clear_sample_cache_handler,
-            inputs=[components['existing_sample_dropdown']],
-            outputs=[components['save_status'], components['existing_sample_info']]
+            inputs=[components['sample_lister']],
+            outputs=[components['prep_status'], components['existing_sample_info']]
         )
 
         # File input change - load and show editor
         components['prep_file_input'].change(
             on_prep_audio_load_handler,
             inputs=[components['prep_file_input']],
-            outputs=[components['prep_audio_editor'], components['prep_audio_info']]
+            outputs=[components['prep_audio_editor'], components['prep_status']]
         ).then(
             lambda audio: (
                 gr.update(visible=audio is not None),
@@ -486,28 +477,28 @@ class PrepSamplesTool(Tool):
         components['clear_btn'].click(
             lambda: (None, None, ""),
             outputs=[components['prep_file_input'], components['prep_audio_editor'],
-                     components['prep_audio_info']]
+                     components['prep_status']]
         )
 
         # Normalize
         components['normalize_btn'].click(
             normalize_audio_handler,
             inputs=[components['prep_audio_editor']],
-            outputs=[components['prep_audio_editor']]
+            outputs=[components['prep_audio_editor'], components['prep_status']]
         )
 
         # Convert to mono
         components['mono_btn'].click(
             convert_to_mono_handler,
             inputs=[components['prep_audio_editor']],
-            outputs=[components['prep_audio_editor']]
+            outputs=[components['prep_audio_editor'], components['prep_status']]
         )
 
         # Clean audio
         components['clean_btn'].click(
             clean_audio_handler,
             inputs=[components['prep_audio_editor']],
-            outputs=[components['prep_audio_editor']]
+            outputs=[components['prep_audio_editor'], components['prep_status']]
         )
 
         # Transcribe
@@ -515,7 +506,7 @@ class PrepSamplesTool(Tool):
             transcribe_audio_handler,
             inputs=[components['prep_audio_editor'], components['whisper_language'],
                     components['transcribe_model']],
-            outputs=[components['transcription_output']]
+            outputs=[components['transcription_output'], components['prep_status']]
         )
 
         # Save sample modal
@@ -530,12 +521,10 @@ class PrepSamplesTool(Tool):
         )
 
         # Save sample input handler
-        # Update both prep samples dropdown and main app dropdown (if exists)
-        main_sample_dropdown = shared_state.get('sample_dropdown', components['existing_sample_dropdown'])
         input_trigger.change(
             handle_save_sample_input,
             inputs=[input_trigger, components['prep_audio_editor'], components['transcription_output']],
-            outputs=[components['save_status'], components['existing_sample_dropdown'], main_sample_dropdown]
+            outputs=[components['prep_status'], components['sample_lister']]
         )
 
         # Save preferences

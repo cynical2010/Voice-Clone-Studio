@@ -15,7 +15,9 @@ if __name__ == "__main__":
 
 import gradio as gr
 from pathlib import Path
+from datetime import datetime
 from modules.core_components.tool_base import Tool, ToolConfig
+from gradio_filelister import FileLister
 
 
 class OutputHistoryTool(Tool):
@@ -37,35 +39,46 @@ class OutputHistoryTool(Tool):
         # Get OUTPUT_DIR from shared_state
         OUTPUT_DIR = shared_state.get('OUTPUT_DIR')
 
-        # Helper function to get output files
-        def get_output_files():
-            """Get list of generated output files.
+        # Helper function to get output files as FileLister format
+        def get_output_files_for_lister():
+            """Get list of generated output files for the FileLister widget.
 
             Returns:
-                List of filenames
+                List of dicts with 'name' and 'date' keys
             """
             if not OUTPUT_DIR or not OUTPUT_DIR.exists():
                 return []
             files = sorted(OUTPUT_DIR.glob("*.wav"), key=lambda x: x.stat().st_mtime, reverse=True)
-            return [f.name for f in files]
+            result = []
+            for f in files:
+                try:
+                    mtime = datetime.fromtimestamp(f.stat().st_mtime)
+                    date_str = mtime.strftime("%Y-%m-%d %H:%M")
+                except Exception:
+                    date_str = ""
+                result.append({"name": f.name, "date": date_str})
+            return result
 
         with gr.TabItem("Output History"):
             gr.Markdown("Browse and manage previously generated audio files")
             with gr.Row():
                 with gr.Column(scale=1):
-                    with gr.Column(scale=1, elem_id="output-files-container"):
-                        components['output_dropdown'] = gr.Radio(
-                            choices=get_output_files(),
-                            show_label=False,
-                            interactive=True,
-                            elem_id="output-files-group"
-                        )
-                    components['refresh_outputs_btn'] = gr.Button("Refresh", size="sm")
+                    components['file_lister'] = FileLister(
+                        value=get_output_files_for_lister(),
+                        height=400,
+                        show_footer=False,
+                        interactive=True,
+                    )
+                    with gr.Row():
+                        components['refresh_outputs_btn'] = gr.Button("Refresh", size="sm")
+                        components['delete_output_btn'] = gr.Button("Delete Selected", size="sm", variant="stop")
 
                 with gr.Column(scale=1):
                     components['history_audio'] = gr.Audio(
                         label="Playback",
-                        type="filepath"
+                        type="filepath",
+                        autoplay=False,
+                        elem_id="output-history-audio"
                     )
 
                     components['history_metadata'] = gr.Textbox(
@@ -78,9 +91,6 @@ class OutputHistoryTool(Tool):
                         interactive=False,
                         max_lines=1
                     )
-                    # Hidden textbox to store selected filename for delete
-                    components['selected_file'] = gr.Textbox(visible=False)
-                    components['delete_output_btn'] = gr.Button("Delete", size="sm")
 
         return components
 
@@ -93,106 +103,129 @@ class OutputHistoryTool(Tool):
         show_confirmation_modal_js = shared_state.get('show_confirmation_modal_js')
         confirm_trigger = shared_state.get('confirm_trigger')
 
-        # Local helper functions
-        # Local helper functions
-        def get_output_files():
-            """Get list of generated output files.
-
-            Returns:
-                List of filenames
-            """
+        def get_output_files_for_lister():
+            """Get list of generated output files for the FileLister widget."""
             if not OUTPUT_DIR or not OUTPUT_DIR.exists():
                 return []
             files = sorted(OUTPUT_DIR.glob("*.wav"), key=lambda x: x.stat().st_mtime, reverse=True)
-            return [f.name for f in files]
+            result = []
+            for f in files:
+                try:
+                    mtime = datetime.fromtimestamp(f.stat().st_mtime)
+                    date_str = mtime.strftime("%Y-%m-%d %H:%M")
+                except Exception:
+                    date_str = ""
+                result.append({"name": f.name, "date": date_str})
+            return result
 
         def refresh_outputs():
             """Refresh the output file list."""
-            return gr.update(choices=get_output_files(), value=None)
+            return get_output_files_for_lister()
 
-        def load_output_audio(selected_file):
-            """Load a selected output file for playback and show metadata."""
-            if not selected_file:
-                return None, "", ""
+        def on_file_selection_change(lister_value):
+            """Handle file selection changes from FileLister.
 
-            file_path = OUTPUT_DIR / selected_file
+            Single file selected: load audio + metadata.
+            Multiple or no files: clear audio + metadata.
+            """
+            if not lister_value:
+                return None, ""
 
-            if file_path.exists():
-                metadata_file = file_path.with_suffix(".txt")
-                if metadata_file.exists():
-                    try:
-                        metadata = metadata_file.read_text(encoding="utf-8")
-                        return str(file_path), metadata, selected_file
-                    except:
-                        pass
-                return str(file_path), "No metadata available", selected_file
-            return None, "", ""
+            selected = lister_value.get("selected", [])
 
-        def delete_output_file(action, selected_file):
-            """Delete output file and metadata."""
+            if len(selected) == 1:
+                file_path = OUTPUT_DIR / selected[0]
+                if file_path.exists():
+                    metadata_file = file_path.with_suffix(".txt")
+                    if metadata_file.exists():
+                        try:
+                            metadata = metadata_file.read_text(encoding="utf-8")
+                            return str(file_path), metadata
+                        except Exception:
+                            pass
+                    return str(file_path), "No metadata available"
+            # Multiple or no selection - clear
+            return None, ""
+
+        def delete_selected_files(action, lister_value):
+            """Delete selected output files and their metadata."""
             # Ignore empty calls or wrong context
             if not action or not action.strip() or not action.startswith("output_"):
-                return gr.update(), gr.update(), gr.update(), ""
+                return gr.update(), gr.update()
 
-            # Handle cancel
-            if "cancel" in action:
-                return "Deletion cancelled", gr.update(), gr.update(), ""
-
-            # Only process confirm
+            # Only process confirm (cancel is handled purely in JS now)
             if "confirm" not in action:
-                return gr.update(), gr.update(), gr.update(), ""
+                return gr.update(), gr.update()
 
-            if not selected_file:
-                return "[ERROR] No file selected", gr.update(), None, ""
+            if not lister_value or not lister_value.get("selected"):
+                return "[ERROR] No file(s) selected", gr.update()
 
-            try:
-                audio_path = OUTPUT_DIR / selected_file
-                txt_path = audio_path.with_suffix(".txt")
+            selected = lister_value["selected"]
+            deleted_count = 0
+            errors = []
 
-                deleted = []
-                if audio_path.exists():
-                    audio_path.unlink()
-                    deleted.append("audio")
-                if txt_path.exists():
-                    txt_path.unlink()
-                    deleted.append("text")
+            for filename in selected:
+                try:
+                    audio_path = OUTPUT_DIR / filename
+                    txt_path = audio_path.with_suffix(".txt")
 
-                updated_list = get_output_files()
-                msg = f"Deleted: {audio_path.name} ({', '.join(deleted)})" if deleted else "[ERROR] Files not found"
-                return msg, gr.update(choices=updated_list, value=None), None, ""
-            except Exception as e:
-                return f"[ERROR] Error: {str(e)}", gr.update(), None, ""
+                    if audio_path.exists():
+                        audio_path.unlink()
+                    if txt_path.exists():
+                        txt_path.unlink()
+                    deleted_count += 1
+                except Exception as e:
+                    errors.append(f"{filename}: {str(e)}")
 
-        # Show modal on delete button choices=updated_list, value=Noneal available)
+            updated_files = get_output_files_for_lister()
+
+            if errors:
+                msg = f"Deleted {deleted_count} file(s), {len(errors)} error(s): {'; '.join(errors)}"
+            else:
+                msg = f"Deleted {deleted_count} file(s)"
+
+            return msg, updated_files
+
+        # Show modal on delete button click
         if show_confirmation_modal_js and confirm_trigger:
             components['delete_output_btn'].click(
                 fn=None,
                 js=show_confirmation_modal_js(
-                    title="Delete Output File?",
-                    message="This will permanently delete the generated audio and its metadata. This action cannot be undone.",
+                    title="Delete Output File(s)?",
+                    message="This will permanently delete the selected audio file(s) and their metadata. This action cannot be undone.",
                     confirm_button_text="Delete",
                     context="output_"
                 )
             )
 
-            # Process confirmation
+            # Process confirmation — only outputs status + file list.
+            # Audio/metadata clear naturally via file_lister.change cascade.
             confirm_trigger.change(
-                delete_output_file,
-                inputs=[confirm_trigger, components['selected_file']],
-                outputs=[components['delete_status'], components['output_dropdown'], components['history_audio'], components['selected_file']]
+                delete_selected_files,
+                inputs=[confirm_trigger, components['file_lister']],
+                outputs=[components['delete_status'], components['file_lister']]
             )
 
         # Refresh button
         components['refresh_outputs_btn'].click(
             refresh_outputs,
-            outputs=[components['output_dropdown']]
+            outputs=[components['file_lister']]
         )
 
-        # Load on dropdown change
-        components['output_dropdown'].change(
-            load_output_audio,
-            inputs=[components['output_dropdown']],
-            outputs=[components['history_audio'], components['history_metadata'], components['selected_file']]
+        # Load audio on selection change (click = display only, no autoplay)
+        components['file_lister'].change(
+            on_file_selection_change,
+            inputs=[components['file_lister']],
+            outputs=[components['history_audio'], components['history_metadata']]
+        )
+
+        # Double-click = play audio by clicking the WaveSurfer play button via JS.
+        # gr.update(autoplay=True) is broken in Gradio 6.x, so we use JS instead.
+        # The .change handler already loads the file on first click of the dblclick;
+        # this handler just triggers playback after a short delay for the waveform to load.
+        components['file_lister'].double_click(
+            fn=None,
+            js="() => { setTimeout(() => { const btn = document.querySelector('#output-history-audio .play-pause-button'); if (btn) btn.click(); }, 150); }" 
         )
 
 

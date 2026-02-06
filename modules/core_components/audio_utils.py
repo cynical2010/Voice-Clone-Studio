@@ -71,17 +71,17 @@ def extract_audio_from_video(video_path, temp_dir):
             result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode == 0 and audio_output.exists():
-            return str(audio_output)
+            return str(audio_output), "Extracted audio from video"
         else:
             print(f"ffmpeg error: {result.stderr}")
-            return None
+            return None, "⚠ Failed to extract audio from video"
 
     except FileNotFoundError:
         print("[ERROR] ffmpeg not found. Please install ffmpeg to extract audio from video.")
-        return None
+        return None, "⚠ ffmpeg not found"
     except Exception as e:
         print(f"Error extracting audio: {e}")
-        return None
+        return None, "⚠ Error extracting audio"
 
 
 def get_audio_duration(audio_path):
@@ -118,13 +118,13 @@ def normalize_audio(audio_file, temp_dir):
         temp_dir: Directory to save normalized audio
 
     Returns:
-        str: Path to normalized audio file, or original path if failed
+        tuple: Path to normalized audio file, or original path if failed and status message
     """
     if audio_file is None:
-        return None
+        return None, "⚠ No audio file provided"
 
     if not os.path.exists(audio_file):
-        return None
+        return None, "⚠ Audio file not found"
 
     try:
         data, sr = sf.read(audio_file)
@@ -159,11 +159,11 @@ def normalize_audio(audio_file, temp_dir):
         if platform.system() == "Windows":
             time.sleep(0.1)  # Small delay to ensure file is fully written
 
-        return str(temp_path)
+        return str(temp_path), "Normalized audio"
 
     except Exception as e:
         print(f"Error normalizing audio: {e}")
-        return audio_file
+        return audio_file, "⚠ Error normalizing audio"
 
 
 def convert_to_mono(audio_file, temp_dir):
@@ -175,13 +175,13 @@ def convert_to_mono(audio_file, temp_dir):
         temp_dir: Directory to save mono audio
 
     Returns:
-        str: Path to mono audio file, or original path if already mono or failed
+        tuple: Path to mono audio file, or original path if already mono or failed and status message
     """
     if audio_file is None:
-        return None
+        return None, "⚠ No audio file provided"
 
     if not os.path.exists(audio_file):
-        return None
+        return None, "⚠ Audio file not found"
 
     try:
         data, sr = sf.read(audio_file)
@@ -206,13 +206,13 @@ def convert_to_mono(audio_file, temp_dir):
             if platform.system() == "Windows":
                 time.sleep(0.1)
 
-            return str(temp_path)
+            return str(temp_path), "Converted to mono"
         else:
-            return audio_file
+            return audio_file, "Already mono"
 
     except Exception as e:
         print(f"Error converting to mono: {e}")
-        return audio_file
+        return audio_file, "⚠ Error converting to mono"
 
 
 def clean_audio(audio_file, temp_dir, get_deepfilter_model_func, progress_callback=None):
@@ -226,14 +226,14 @@ def clean_audio(audio_file, temp_dir, get_deepfilter_model_func, progress_callba
         progress_callback: Optional progress callback function
 
     Returns:
-        str: Path to cleaned audio file, or original path if failed
+        tuple: Path to cleaned audio file, or original path if failed and status message
     """
     if audio_file is None:
-        return None
+        return None, "⚠ No audio file provided"
 
     if not os.path.exists(audio_file):
         print(f"Error: Audio file not found at path: {audio_file}")
-        return None
+        return None, "⚠ Audio file not found"
 
     try:
         if progress_callback:
@@ -277,11 +277,11 @@ def clean_audio(audio_file, temp_dir, get_deepfilter_model_func, progress_callba
         if progress_callback:
             progress_callback(1.0, desc="Done!")
 
-        return str(output_path)
+        return str(output_path), "Cleaned with DeepFilterNet"
 
     except Exception as e:
         print(f"Error cleaning audio: {e}")
-        return audio_file
+        return audio_file, "⚠ Error cleaning audio"
 
 
 def save_audio_as_sample(audio_file, transcription, sample_name, samples_dir):

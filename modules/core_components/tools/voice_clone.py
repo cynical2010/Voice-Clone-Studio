@@ -22,6 +22,7 @@ from textwrap import dedent
 
 from modules.core_components.tool_base import Tool, ToolConfig
 from modules.core_components.ai_models.tts_manager import get_tts_manager
+from gradio_filelister import FileLister
 
 class VoiceCloneTool(Tool):
     """Voice Clone tool implementation."""
@@ -67,43 +68,37 @@ class VoiceCloneTool(Tool):
                 with gr.Column(scale=1):
                     gr.Markdown("### Voice Sample")
 
-                    sample_choices = get_sample_choices()
-                    first_sample_name = sample_choices[0] if sample_choices else None
-                    
-                    components['sample_dropdown'] = gr.Dropdown(
-                        choices=sample_choices,
-                        value=first_sample_name,
-                        label="Select Sample",
-                        info="Manage samples in Prep Samples tab"
+                    components['sample_lister'] = FileLister(
+                        value=get_sample_choices(),
+                        height=200,
+                        show_footer=False,
+                        interactive=True,
                     )
 
                     with gr.Row():
-                        components['load_sample_btn'] = gr.Button("Load", size="sm")
                         components['refresh_samples_btn'] = gr.Button("Refresh", size="sm")
-
-                    # Pre-load first sample's data for initial display
-                    initial_audio, initial_text, initial_info = load_sample_details(first_sample_name)
 
                     components['sample_audio'] = gr.Audio(
                         label="Sample Preview",
                         type="filepath",
                         interactive=False,
                         visible=True,
-                        value=initial_audio
+                        value=None,
+                        elem_id="voice-clone-sample-audio"
                     )
 
                     components['sample_text'] = gr.Textbox(
                         label="Sample Text",
                         interactive=False,
                         max_lines=10,
-                        value=initial_text
+                        value=None
                     )
 
                     components['sample_info'] = gr.Textbox(
                         label="Info",
                         interactive=False,
                         max_lines=3,
-                        value=initial_info
+                        value=None
                     )
 
                 # Right column - Generation (2/3 width)
@@ -272,6 +267,16 @@ class VoiceCloneTool(Tool):
         # Get TTS manager (singleton)
         tts_manager = get_tts_manager()
 
+        def get_selected_sample_name(lister_value):
+            """Extract selected sample name from FileLister value (strips .wav extension)."""
+            if not lister_value:
+                return None
+            selected = lister_value.get("selected", [])
+            if len(selected) == 1:
+                from modules.core_components.tools import strip_sample_extension
+                return strip_sample_extension(selected[0])
+            return None
+
         def generate_audio_handler(sample_name, text_to_generate, language, seed, model_selection="Qwen3 - Small",
                                    qwen_do_sample=True, qwen_temperature=0.9, qwen_top_k=50, qwen_top_p=1.0, qwen_repetition_penalty=1.05,
                                    qwen_max_new_tokens=2048,
@@ -411,28 +416,29 @@ class VoiceCloneTool(Tool):
                 traceback.print_exc()
                 return None, f"❌ Error generating audio: {str(e)}"
 
-        def load_selected_sample(sample_name):
-            """Load audio, text, and info for the selected sample."""
-            audio, text, info = load_sample_details(sample_name)
-            print(f"[DEBUG] Returning: audio={audio}, text_len={len(text) if text else 0}, info_len={len(info) if info else 0}")
-            return audio, text, info
+        def load_sample_from_lister(lister_value):
+            """Load audio, text, and info for the selected sample from FileLister."""
+            sample_name = get_selected_sample_name(lister_value)
+            if not sample_name:
+                return None, "", ""
+            return load_sample_details(sample_name)
 
         # Connect event handlers for Voice Clone tab
-        components['sample_dropdown'].change(
-            load_selected_sample,
-            inputs=[components['sample_dropdown']],
+        components['sample_lister'].change(
+            load_sample_from_lister,
+            inputs=[components['sample_lister']],
             outputs=[components['sample_audio'], components['sample_text'], components['sample_info']]
         )
 
-        components['load_sample_btn'].click(
-            load_selected_sample,
-            inputs=[components['sample_dropdown']],
-            outputs=[components['sample_audio'], components['sample_text'], components['sample_info']]
+        # Double-click = play sample audio
+        components['sample_lister'].double_click(
+            fn=None,
+            js="() => { setTimeout(() => { const btn = document.querySelector('#voice-clone-sample-audio .play-pause-button'); if (btn) btn.click(); }, 150); }"
         )
 
         components['refresh_samples_btn'].click(
-            refresh_samples,
-            outputs=[components['sample_dropdown']]
+            lambda: get_sample_choices(),
+            outputs=[components['sample_lister']]
         )
 
         # Wire up emotion preset handlers (same pattern as original)
@@ -518,9 +524,13 @@ class VoiceCloneTool(Tool):
             outputs=[components['qwen_emotion_preset'], components['clone_status'], confirm_trigger]
         )
 
+        def generate_from_lister(lister_value, *args):
+            """Extract sample name from lister and pass to generate."""
+            return generate_audio_handler(get_selected_sample_name(lister_value), *args)
+
         components['generate_btn'].click(
-            generate_audio_handler,
-            inputs=[components['sample_dropdown'], components['text_input'], components['language_dropdown'], components['seed_input'], components['clone_model_dropdown'],
+            generate_from_lister,
+            inputs=[components['sample_lister'], components['text_input'], components['language_dropdown'], components['seed_input'], components['clone_model_dropdown'],
                     components['qwen_do_sample'], components['qwen_temperature'], components['qwen_top_k'], components['qwen_top_p'], components['qwen_repetition_penalty'],
                     components['qwen_max_new_tokens'],
                     components['vv_do_sample'], components['vv_temperature'], components['vv_top_k'], components['vv_top_p'], components['vv_repetition_penalty'],
@@ -565,20 +575,21 @@ class VoiceCloneTool(Tool):
         )
 
         # Refresh emotion dropdowns and auto-load first sample when tab is selected
-        def on_tab_select(sample_name):
+        def on_tab_select(lister_value):
             """When tab is selected, refresh emotions and auto-load sample if not loaded."""
             emotion_update = gr.update(choices=shared_state['get_emotion_choices'](shared_state['_active_emotions']))
 
-            # Auto-load first sample if one is selected
+            # Auto-load selected sample
+            sample_name = get_selected_sample_name(lister_value)
             if sample_name:
-                audio, text, info = load_selected_sample(sample_name)
+                audio, text, info = load_sample_details(sample_name)
                 return emotion_update, audio, text, info
 
             return emotion_update, None, "", ""
 
         components['voice_clone_tab'].select(
             on_tab_select,
-            inputs=[components['sample_dropdown']],
+            inputs=[components['sample_lister']],
             outputs=[components['qwen_emotion_preset'], components['sample_audio'],
                      components['sample_text'], components['sample_info']]
         )

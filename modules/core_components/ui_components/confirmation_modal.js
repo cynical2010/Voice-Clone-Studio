@@ -6,6 +6,12 @@ function confirmModalAction(action, button) {
     overlay.classList.remove('show');
   }
 
+  // Cancel = just close the modal, no backend call needed
+  if (action === 'cancel') {
+    console.log('Modal cancelled, no trigger update');
+    return;
+  }
+
   // Get context from button's data attribute
   const context = button ? button.getAttribute('data-context') || '' : '';
   const prefixedAction = context + action;

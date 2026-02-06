@@ -166,12 +166,16 @@ __all__ = [
     'save_tool_settings',
     'create_enabled_tools',
     'setup_tool_events',
+    'PROJECT_ROOT',
+    'CONFIG_FILE',
+    'get_configured_dir',
     'load_config',
     'save_config',
     'save_preference',
     'format_help_html',
     'play_completion_beep',
     'get_sample_choices',
+    'strip_sample_extension',
     'get_available_samples',
     'get_prompt_cache_path',
     'load_sample_details',
@@ -194,12 +198,29 @@ def _find_project_root():
     current = Path(__file__).parent
     for _ in range(10):  # Limit search depth
         if (current / "voice_clone_studio.py").exists():
-            return current / "config.json"
+            return current
         current = current.parent
     # Fallback to best guess (4 levels up from tools/__init__.py)
-    return Path(__file__).parent.parent.parent.parent / "config.json"
+    return Path(__file__).parent.parent.parent.parent
 
-CONFIG_FILE = _find_project_root()
+PROJECT_ROOT = _find_project_root()
+CONFIG_FILE = PROJECT_ROOT / "config.json"
+
+
+def get_configured_dir(folder_key, default):
+    """Get a directory path from config, with fallback default.
+
+    Reads the current config each time to pick up changes from Settings.
+
+    Args:
+        folder_key: Config key (e.g. 'samples_folder', 'models_folder')
+        default: Default folder name if not in config
+
+    Returns:
+        Path object for the configured directory
+    """
+    config = load_config()
+    return PROJECT_ROOT / config.get(folder_key, default)
 
 # Shared CSS for all tools
 # - Hides trigger widgets used by modal system
@@ -418,51 +439,73 @@ def play_completion_beep():
 # ===== Sample Management Helpers (Voice Clone & related tools) =====
 
 def get_sample_choices():
-    """Get list of sample names for dropdown."""
+    """Get list of sample names for FileLister/dropdown.
+
+    Scans for .wav files (primary source), loads name from .json metadata if available.
+    Returns names with .wav extension so FileLister displays file icons.
+    Use strip_sample_extension() to get the bare name for lookups.
+    """
     import json
-    from pathlib import Path
-    project_root = Path(__file__).parent.parent.parent.parent
-    SAMPLES_DIR = project_root / "samples"
+    SAMPLES_DIR = get_configured_dir("samples_folder", "samples")
 
     samples = []
-    for json_file in SAMPLES_DIR.glob("*.json"):
-        try:
-            with open(json_file, 'r', encoding='utf-8') as f:
-                meta = json.load(f)
-                samples.append(meta.get("name", json_file.stem))
-        except:
-            samples.append(json_file.stem)
-    return samples if samples else ["(No samples found)"]
-
-def get_available_samples():
-    """Get full sample data (wav path, text, metadata)."""
-    import json
-    from pathlib import Path
-    project_root = Path(__file__).parent.parent.parent.parent
-    SAMPLES_DIR = project_root / "samples"
-
-    samples = []
-    for json_file in SAMPLES_DIR.glob("*.json"):
-        wav_file = json_file.with_suffix(".wav")
-        if wav_file.exists():
+    for wav_file in SAMPLES_DIR.glob("*.wav"):
+        json_file = wav_file.with_suffix(".json")
+        name = wav_file.stem
+        if json_file.exists():
             try:
                 with open(json_file, 'r', encoding='utf-8') as f:
                     meta = json.load(f)
-                samples.append({
-                    "name": meta.get("name", json_file.stem),
-                    "wav_path": str(wav_file),
-                    "ref_text": meta.get("Text", meta.get("text", "")),  # Try "Text" first, then "text"
-                    "meta": meta
-                })
+                    name = meta.get("name", wav_file.stem)
             except:
                 pass
+        # Add .wav extension for FileLister file icon display
+        if not name.lower().endswith(".wav"):
+            name += ".wav"
+        samples.append(name)
+    return samples if samples else ["(No samples found)"]
+
+
+def strip_sample_extension(name):
+    """Strip .wav extension from a sample name for use with load_sample_details etc."""
+    if name and name.lower().endswith(".wav"):
+        return name[:-4]
+    return name
+
+def get_available_samples():
+    """Get full sample data (wav path, text, metadata).
+
+    Scans for .wav files (primary source), loads metadata from .json if available.
+    Samples without .json are still included with empty ref_text.
+    """
+    import json
+    SAMPLES_DIR = get_configured_dir("samples_folder", "samples")
+
+    samples = []
+    for wav_file in SAMPLES_DIR.glob("*.wav"):
+        json_file = wav_file.with_suffix(".json")
+        meta = {}
+        name = wav_file.stem
+        ref_text = ""
+        if json_file.exists():
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    meta = json.load(f)
+                name = meta.get("name", wav_file.stem)
+                ref_text = meta.get("Text", meta.get("text", ""))
+            except:
+                pass
+        samples.append({
+            "name": name,
+            "wav_path": str(wav_file),
+            "ref_text": ref_text,
+            "meta": meta
+        })
     return samples
 
 def get_prompt_cache_path(sample_name, model_size):
     """Get cache path for voice prompt."""
-    from pathlib import Path
-    project_root = Path(__file__).parent.parent.parent.parent
-    samples_folder = project_root / "samples"
+    samples_folder = get_configured_dir("samples_folder", "samples")
     return samples_folder / f"{sample_name}_{model_size}.pt"
 
 def load_sample_details(sample_name):
@@ -597,7 +640,26 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
     )
 
     # Check if DeepFilterNet is available
-    DEEPFILTER_AVAILABLE = constants.get('DEEPFILTER_AVAILABLE', False)
+
+    # DeepFilterNet / Torchaudio Compatibility Shim
+    try:
+        from modules.deepfilternet import deepfilternet_torchaudio_patch
+        deepfilternet_torchaudio_patch.apply_patches()
+    except ImportError:
+        print("Warning: compatibility_patches module not found. DeepFilterNet may fail to load.")
+
+    # Try importing DeepFilterNet
+    try:
+        from df.enhance import enhance, init_df, load_audio, save_audio
+        from df.io import load_audio as df_load_audio
+        DEEPFILTER_AVAILABLE = True
+    except ImportError as e:
+        # If it still fails with the specific backend error, print guidance
+        if "torchaudio.backend" in str(e):
+            print(f"⚠ DeepFilterNet failed to load due to torchaudio incompatibility: {e}")
+        else:
+            print(f"⚠ DeepFilterNet not available: {e}")
+        DEEPFILTER_AVAILABLE = False
 
     def clean_audio_standalone(audio_file, progress=None):
         """Clean audio using DeepFilterNet if available, otherwise return unchanged."""
@@ -605,7 +667,7 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
             if progress:
                 progress(1.0, desc="DeepFilterNet not available")
             print("[WARN] DeepFilterNet not available in this environment")
-            return audio_file
+            return audio_file, "⚠ DeepFilterNet not available"
 
         # DeepFilterNet is available - create a lazy loader for the model
         def get_deepfilter_lazy():
@@ -650,7 +712,7 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
         'VOICE_CLONE_OPTIONS': constants.get('VOICE_CLONE_OPTIONS'),
         'DEFAULT_VOICE_CLONE_MODEL': constants.get('DEFAULT_VOICE_CLONE_MODEL'),
         'WHISPER_AVAILABLE': constants.get('WHISPER_AVAILABLE', False),
-        'DEEPFILTER_AVAILABLE': constants.get('DEEPFILTER_AVAILABLE', False),
+        'DEEPFILTER_AVAILABLE': DEEPFILTER_AVAILABLE,
 
         # UI component creators
         'create_qwen_advanced_params': create_qwen_advanced_params,

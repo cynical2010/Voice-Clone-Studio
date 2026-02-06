@@ -258,8 +258,8 @@ class SettingsTool(Tool):
         # Apply folder changes
         def apply_folder_changes(samples, output, datasets, models, trained_models):
             try:
-                # Get base directory (where the script is)
-                base_dir = Path(__file__).parent
+                # Get project root directory
+                base_dir = Path(__file__).parent.parent.parent.parent
 
                 # Update paths
                 new_samples = base_dir / samples

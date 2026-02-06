@@ -48,7 +48,7 @@ class VoiceDesignTool(Tool):
             gr.Markdown("Create new voices from natural language descriptions")
 
             with gr.Row():
-                with gr.Column(scale=2):
+                with gr.Column(scale=1):
                     gr.Markdown("### Create Design")
 
                     components['design_text_input'] = gr.Textbox(
