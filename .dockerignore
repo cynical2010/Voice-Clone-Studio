@@ -9,7 +9,6 @@ __pycache__/
 *.bat
 *.log
 temp/
-tests/
 models/
 output/
 samples/
