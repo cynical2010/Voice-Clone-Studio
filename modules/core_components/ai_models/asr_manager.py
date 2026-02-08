@@ -222,7 +222,6 @@ class ASRManager:
                         results = self.model.transcribe(audio=audio_path, language=language)
                     finally:
                         gen_logger.setLevel(prev_level)
-                    print(f"[Qwen3 ASR Raw Result] {results}")
                     text = results[0].text if results else ""
                     detected_language = results[0].language if results else None
                     return {"text": text, "language": detected_language}

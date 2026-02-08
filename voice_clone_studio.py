@@ -112,6 +112,14 @@ MODELS_DIR = Path(__file__).parent / _user_config.get("models_folder", "models")
 for dir_path in [SAMPLES_DIR, OUTPUT_DIR, DATASETS_DIR, TEMP_DIR, MODELS_DIR]:
     dir_path.mkdir(exist_ok=True)
 
+# Clean temp folder at startup
+for f in TEMP_DIR.iterdir():
+    try:
+        if f.is_file():
+            f.unlink()
+    except Exception:
+        pass
+
 # ============================================================================
 # CONSTANTS - Import from central location
 # ============================================================================

@@ -17,6 +17,7 @@ import soundfile as sf
 from datetime import datetime
 from textwrap import dedent
 from pathlib import Path
+from gradio_filelister import FileLister
 
 from modules.core_components.tool_base import Tool, ToolConfig
 from modules.core_components.ai_models.tts_manager import get_tts_manager
@@ -151,9 +152,9 @@ class VoicePresetsTool(Tool):
 
                         # ICL (In-Context Learning) mode for enhanced voice cloning
                         components['icl_enabled'] = gr.Checkbox(
-                            label="Enable ICL (Enhanced Voice Clone)",
+                            label="Enable ICL (Experimental)",
                             value=False,
-                            info="Use a voice sample for more natural, expressive results"
+                            info="Use a voice sample for more expressive results"
                         )
 
                         components['icl_sample_section'] = gr.Column(visible=False)
@@ -166,18 +167,18 @@ class VoicePresetsTool(Tool):
                                 interactive=True
                             )
                             components['icl_refresh_datasets'] = gr.Button("Refresh Datasets", size="sm")
-
-                            components['icl_voice_sample'] = gr.Dropdown(
-                                choices=[],
-                                label="Voice Sample",
-                                info="Select a sample from the dataset",
-                                interactive=True
+                            components['icl_voice_lister'] = FileLister(
+                                value=[],
+                                height=150,
+                                show_footer=False,
+                                interactive=True,
                             )
 
                             components['icl_audio_preview'] = gr.Audio(
                                 label="Preview",
                                 type="filepath",
-                                interactive=False
+                                interactive=False,
+                                elem_id="icl-audio-preview"
                             )
 
                         trained_models_tip = dedent("""\
@@ -186,10 +187,9 @@ class VoicePresetsTool(Tool):
                         Custom voices you've trained in the Train Model tab.
 
                         **ICL Mode (Enhanced Voice Clone):**
-                        Enable ICL and select a sample from your training dataset
-                        for much more natural, expressive results. The model uses
-                        both its training AND the reference audio for better voice
-                        similarity.
+                        Select a sample from your training dataset for more
+                        expressive results. The model uses both its training
+                        and the reference audio for better voice similarity.
 
                         *Tip: Later epochs are usually better trained*
                         """)
@@ -342,7 +342,7 @@ class VoicePresetsTool(Tool):
                     Language: {language}
                     Seed: {seed}
                     Instruct: {instruct.strip() if instruct else ''}
-                    Text: {text_to_generate.strip()}
+                    Text: {' '.join(text_to_generate.split())}
                     """)
                 metadata_file.write_text(metadata, encoding="utf-8")
 
@@ -436,7 +436,7 @@ class VoicePresetsTool(Tool):
                     ICL Dataset: {icl_dataset if icl_active else 'N/A'}
                     ICL Sample: {icl_sample_name if icl_active else 'N/A'}
                     Instruct: {instruct.strip() if instruct and not icl_enabled else ''}
-                    Text: {text_to_generate.strip()}
+                    Text: {' '.join(text_to_generate.split())}
                     """)
                 metadata_file.write_text(metadata, encoding="utf-8")
 
@@ -493,8 +493,9 @@ class VoicePresetsTool(Tool):
 
         def generate_with_voice_type(text, lang, speaker_sel, instruct, seed, model_size, voice_type, premium_speaker, trained_model,
                                      do_sample, temperature, top_k, top_p, repetition_penalty, max_new_tokens,
-                                     icl_enabled=False, icl_dataset=None, icl_sample_name=None, progress=gr.Progress()):
+                                     icl_enabled=False, icl_dataset=None, icl_lister_value=None, progress=gr.Progress()):
             """Generate audio with either premium or trained voice."""
+            icl_sample_name = get_selected_icl_filename(icl_lister_value) if icl_lister_value else None
 
             if voice_type == "Premium Speakers":
                 speaker = extract_speaker_name(premium_speaker)
@@ -563,16 +564,25 @@ class VoicePresetsTool(Tool):
             outputs=[components['icl_sample_section']]
         )
 
-        # ICL dataset change: update sample dropdown
+        def get_selected_icl_filename(lister_value):
+            """Extract selected filename from FileLister value."""
+            if not lister_value:
+                return None
+            selected = lister_value.get("selected", [])
+            if len(selected) == 1:
+                return selected[0]
+            return None
+
+        # ICL dataset change: update sample lister
         def update_icl_samples(folder):
-            """Update ICL sample dropdown when dataset changes."""
+            """Update ICL sample lister when dataset changes."""
             files = get_dataset_files(folder)
-            return gr.update(choices=files, value=None), None
+            return files, None
 
         components['icl_dataset_dropdown'].change(
             update_icl_samples,
             inputs=[components['icl_dataset_dropdown']],
-            outputs=[components['icl_voice_sample'], components['icl_audio_preview']]
+            outputs=[components['icl_voice_lister'], components['icl_audio_preview']]
         )
 
         # ICL refresh datasets
@@ -581,9 +591,10 @@ class VoicePresetsTool(Tool):
             outputs=[components['icl_dataset_dropdown']]
         )
 
-        # ICL sample preview
-        def load_icl_audio_preview(folder, filename):
-            """Load ICL audio preview."""
+        # ICL sample preview on selection
+        def load_icl_audio_preview(lister_value, folder):
+            """Load ICL audio preview from FileLister selection."""
+            filename = get_selected_icl_filename(lister_value)
             if not folder or not filename or folder in ("(No folders)", "(Select Dataset)"):
                 return None
             audio_path = DATASETS_DIR / folder / filename
@@ -591,10 +602,16 @@ class VoicePresetsTool(Tool):
                 return str(audio_path)
             return None
 
-        components['icl_voice_sample'].change(
+        components['icl_voice_lister'].change(
             load_icl_audio_preview,
-            inputs=[components['icl_dataset_dropdown'], components['icl_voice_sample']],
+            inputs=[components['icl_voice_lister'], components['icl_dataset_dropdown']],
             outputs=[components['icl_audio_preview']]
+        )
+
+        # Double-click = play preview
+        components['icl_voice_lister'].double_click(
+            fn=None,
+            js="() => { setTimeout(() => { const btn = document.querySelector('#icl-audio-preview .play-pause-button'); if (btn) btn.click(); }, 150); }"
         )
 
         # Apply emotion preset to Custom Voice parameters
@@ -661,7 +678,7 @@ class VoicePresetsTool(Tool):
                 components['voice_type_radio'], components['custom_speaker_dropdown'], components['trained_model_dropdown'],
                 components['custom_do_sample'], components['custom_temperature'], components['custom_top_k'], components['custom_top_p'],
                 components['custom_repetition_penalty'], components['custom_max_new_tokens'],
-                components['icl_enabled'], components['icl_dataset_dropdown'], components['icl_voice_sample']
+                components['icl_enabled'], components['icl_dataset_dropdown'], components['icl_voice_lister']
             ],
             outputs=[components['custom_output_audio'], components['preset_status']]
         )

@@ -14,12 +14,26 @@ if __name__ == "__main__":
 
 import gradio as gr
 import re
+import os
 import shutil
 import soundfile as sf
 from pathlib import Path
 from modules.core_components.tool_base import Tool, ToolConfig
 from modules.core_components.ai_models.asr_manager import get_asr_manager
 from gradio_filelister import FileLister
+
+# --- Console colors (ANSI) ---
+# Enable ANSI on Windows
+if os.name == 'nt':
+    os.system('')
+
+_CYAN = '\033[96m'
+_GREEN = '\033[92m'
+_YELLOW = '\033[93m'
+_RED = '\033[91m'
+_DIM = '\033[2m'
+_BOLD = '\033[1m'
+_RESET = '\033[0m'
 
 
 class PrepSamplesTool(Tool):
@@ -184,11 +198,28 @@ class PrepSamplesTool(Tool):
 
                     with gr.Accordion("Split Settings", open=False,
                                       visible=False) as auto_split_accordion:
-                        components['split_min'] = gr.Slider(
-                            minimum=1, maximum=15, value=5, step=0.5,
-                            label="Minimum clip duration (seconds)",
-                            info="Sentences shorter than this will be merged with the next one"
-                        )
+                        with gr.Row():
+                            components['split_min'] = gr.Slider(
+                                minimum=1, maximum=15, value=_user_config.get("split_min", 5), step=0.5,
+                                label="Minimum clip duration (seconds)",
+                                info="Sentences shorter than this will be merged with the next one"
+                            )
+                            components['split_max'] = gr.Slider(
+                                minimum=10, maximum=60, value=_user_config.get("split_max", 20), step=1,
+                                label="Maximum clip duration (seconds)",
+                                info="Clips longer than this will split at commas too"
+                            )
+                        with gr.Row():
+                            components['silence_trim'] = gr.Slider(
+                                minimum=0, maximum=10, value=_user_config.get("silence_trim", 1), step=0.5,
+                                label="Max silence to keep (seconds)",
+                                info="Silence gaps longer than this are trimmed down"
+                            )
+                            components['discard_under'] = gr.Slider(
+                                minimum=0, maximum=5, value=_user_config.get("discard_under", 1), step=0.5,
+                                label="Discard clips under (seconds)",
+                                info="Clips shorter than this are discarded (0 = keep all)"
+                            )
                     components['auto_split_accordion'] = auto_split_accordion
 
                     components['auto_split_btn'] = gr.Button(
@@ -233,6 +264,9 @@ class PrepSamplesTool(Tool):
     @classmethod
     def setup_events(cls, components, shared_state):
         """Wire up Prep Samples tab events."""
+
+        # Config
+        _user_config = shared_state['_user_config']
 
         # Shared utilities
         get_sample_choices = shared_state['get_sample_choices']
@@ -371,7 +405,7 @@ class PrepSamplesTool(Tool):
                 return gr.update(), ""
             try:
                 if is_video_file(audio_file):
-                    print(f"Video file detected: {Path(audio_file).name}")
+                    print(f"{_DIM}Video file detected: {Path(audio_file).name}{_RESET}")
                     audio_path, message = extract_audio_from_video(audio_file)
                     if audio_path:
                         duration = get_audio_duration(audio_path)
@@ -541,7 +575,8 @@ class PrepSamplesTool(Tool):
                     result = model.transcribe(audio_file, **options)
 
                 progress(1.0, desc="Done!")
-                print(f"[ASR Raw Output] ({engine}): {result['text']}")
+                print(f"\n{_CYAN}--- Transcription ({engine}) ---{_RESET}")
+                print(f"{_DIM}{result['text']}{_RESET}")
                 transcription = result["text"].strip()
 
                 if engine == "VibeVoice ASR":
@@ -556,7 +591,7 @@ class PrepSamplesTool(Tool):
 
             except Exception as e:
                 import traceback
-                print(f"Error in transcribe:\n{traceback.format_exc()}")
+                print(f"{_RED}Error in transcribe:\n{traceback.format_exc()}{_RESET}")
                 return f"Error transcribing: {str(e)}", ""
 
         # ===== Save handlers =====
@@ -628,7 +663,7 @@ class PrepSamplesTool(Tool):
             return msg, gr.update(), updated_files, gr.update()
 
         def handle_input_modal(input_value, audio, transcription, folder, language, transcribe_model,
-                               split_min):
+                               split_min, split_max, silence_trim, discard_under):
             """Process input modal results for save sample/dataset, auto-split, and create folder."""
             # 4 outputs: prep_status, sample_lister, dataset_lister, folder_dropdown
             no_update = gr.update(), gr.update(), gr.update(), gr.update()
@@ -702,7 +737,7 @@ class PrepSamplesTool(Tool):
                     engine, asr_size = parse_asr_model(transcribe_model)
                     status, files = auto_split_audio_handler(
                         clip_prefix, audio, folder, language, engine, asr_size or "Large",
-                        split_min
+                        split_min, split_max, silence_trim, discard_under
                     )
                     return status, gr.update(), files, gr.update()
 
@@ -761,6 +796,11 @@ class PrepSamplesTool(Tool):
                 if not files_to_process:
                     return (f"All {len(audio_files)} files already have transcripts. "
                             "Check 'Replace existing' to re-transcribe.")
+
+                print(f"\n{_CYAN}{'=' * 55}")
+                print(f" Batch Transcribe  |  Engine: {engine}")
+                print(f" Folder: {folder}  |  {len(files_to_process)} file(s)")
+                print(f"{'=' * 55}{_RESET}")
 
                 status_log = [
                     f"Batch transcribing folder: {folder}",
@@ -828,7 +868,7 @@ class PrepSamplesTool(Tool):
                         else:
                             result = model.transcribe(str(audio_file), **options)
 
-                        print(f"[ASR Raw Output] ({engine}): {result['text']}")
+                        print(f"  {_GREEN}>{_RESET} {audio_file.name}  {_DIM}{result['text'][:60]}{'...' if len(result['text']) > 60 else ''}{_RESET}")
                         text = result["text"].strip()
                         if engine == "VibeVoice ASR":
                             text = re.sub(r'\[.*?\]\s*:', '', text)
@@ -863,17 +903,25 @@ class PrepSamplesTool(Tool):
 
         # ===== Auto-Split Audio =====
 
-        def split_into_segments(full_text, word_timestamps, min_duration=4.0):
-            """Split transcribed text into segments at sentence boundaries using word timestamps.
+        def split_into_segments(full_text, word_timestamps, min_duration=4.0, max_duration=20.0,
+                                silence_trim=1.0, discard_under=1.0):
+            """Split transcribed text into segments using word timestamps and silence detection.
 
-            Uses the original ASR transcript (which has punctuation) to find
-            sentence boundaries, then maps them to timing from the word timestamps.
-            Short sentences are merged with the next until min_duration is met.
+            Pipeline:
+            1. Map sentences to word timestamp ranges
+            2. Detect silence gaps between words — force-cut at gaps > silence_trim
+            3. Group small pieces by sentences up to min_duration
+            4. Break oversized segments (> max_duration) at commas
+            5. Trim leading/trailing silence from each segment
+            6. Discard segments shorter than discard_under
 
             Args:
                 full_text: Original transcription with punctuation from ASR
                 word_timestamps: List of timestamp objects with .text, .start_time, .end_time
                 min_duration: Minimum clip duration in seconds
+                max_duration: Maximum clip duration — commas become split points above this
+                silence_trim: Silence gaps longer than this cause a forced cut (seconds)
+                discard_under: Discard final clips shorter than this (seconds, 0 = keep all)
 
             Returns:
                 List of (start_time, end_time, text) tuples
@@ -881,63 +929,239 @@ class PrepSamplesTool(Tool):
             if not word_timestamps or not full_text:
                 return []
 
-            # Step 1: Split transcript into sentences at .!?
-            sentences = re.split(r'(?<=[.!?])\s+', full_text.strip())
-            sentences = [s.strip() for s in sentences if s.strip()]
+            all_words = list(word_timestamps)
 
-            if not sentences:
-                return []
+            # ── Punctuation source detection ──
+            # Whisper includes punctuation in word.text ("Hello," "world.")
+            # Qwen3 ForcedAligner strips it ("Hello" "world") but full_text keeps it.
+            # When word timestamps lack punctuation, use full_text tokens as the
+            # punctuated parallel array (1:1 mapping — aligner produces one timestamp
+            # per whitespace-delimited token in the input text).
+            text_tokens = full_text.split()
+            sample = all_words[:min(30, len(all_words))]
+            has_punct_in_words = any(re.search(r'[.!?,]', w.text) for w in sample)
 
-            # Step 2: Map each sentence to a range of word timestamps.
-            # Strip punctuation from both sides to match aligner tokens.
-            def normalize(text):
-                return re.sub(r'[^\w\s]', '', text).lower().split()
+            if has_punct_in_words or len(text_tokens) != len(all_words):
+                # Whisper path (or length mismatch fallback) — word.text has punctuation
+                def get_word_text(i):
+                    return all_words[i].text.strip()
+            else:
+                # Qwen3 path — use full_text tokens which preserve punctuation
+                def get_word_text(i):
+                    return text_tokens[i]
 
-            all_aligner_words = [w for w in word_timestamps]
-            aligner_idx = 0
-            sentence_ranges = []  # (start_ts_idx, end_ts_idx, sentence_text)
+            # ── Step 1: Group word timestamps into sentences by punctuation ──
+            # Detect sentence boundaries from punctuated word text (. ! ?).
+            # Uses get_word_text() so it works whether punctuation comes from
+            # word.text (Whisper) or full_text tokens (Qwen3 ForcedAligner).
+            sentence_ranges = []  # (word_start_idx, word_end_idx, text)
+            sent_start = 0
 
-            for sentence in sentences:
-                sentence_word_count = len(normalize(sentence))
-                if sentence_word_count == 0:
-                    continue
+            for i, w in enumerate(all_words):
+                is_last = i == len(all_words) - 1
+                word_text = get_word_text(i)
+                ends_sentence = bool(re.search(r'[.!?][\"\')]?$', word_text))
 
-                start_idx = aligner_idx
-                end_idx = min(aligner_idx + sentence_word_count - 1, len(all_aligner_words) - 1)
-                aligner_idx = end_idx + 1
-
-                sentence_ranges.append((start_idx, end_idx, sentence))
+                if ends_sentence or is_last:
+                    sent_words = [get_word_text(j) for j in range(sent_start, i + 1)]
+                    sent_text = " ".join(sent_words)
+                    sentence_ranges.append((sent_start, i, sent_text))
+                    sent_start = i + 1
 
             if not sentence_ranges:
                 return []
 
-            # Step 3: Group sentences into segments respecting min_duration
+            # ── Step 2: Detect silence gaps and mark forced cut points ──
+            # A silence gap is between word[i].end_time and word[i+1].start_time
+            silence_cuts = set()  # word indices AFTER which we force-cut
+            if silence_trim > 0:
+                for i in range(len(all_words) - 1):
+                    gap = all_words[i + 1].start_time - all_words[i].end_time
+                    if gap > silence_trim:
+                        silence_cuts.add(i)
+
+            # ── Step 3: Group sentences into segments, respecting silence cuts ──
+            # A sentence that contains a silence cut within it gets split at the gap.
             segments = []
-            group_sentences = []
-            group_start_idx = sentence_ranges[0][0]
+            group_texts = []
+            group_word_start = sentence_ranges[0][0]
 
-            for i, (start_idx, end_idx, sentence_text) in enumerate(sentence_ranges):
-                group_sentences.append(sentence_text)
-                group_end_idx = end_idx
-                is_last = i == len(sentence_ranges) - 1
+            for si, (s_start, s_end, s_text) in enumerate(sentence_ranges):
+                is_last_sentence = si == len(sentence_ranges) - 1
 
-                start_time = all_aligner_words[group_start_idx].start_time
-                end_time = all_aligner_words[min(group_end_idx, len(all_aligner_words) - 1)].end_time
-                duration = end_time - start_time
+                # Check if any silence cut falls WITHIN this sentence's word range
+                cuts_in_sentence = sorted(
+                    c for c in silence_cuts if s_start <= c < s_end
+                )
 
-                if duration >= min_duration or is_last:
-                    combined_text = " ".join(group_sentences)
-                    if combined_text.strip():
-                        segments.append((start_time, end_time, combined_text.strip()))
-                    group_sentences = []
-                    if i + 1 < len(sentence_ranges):
-                        group_start_idx = sentence_ranges[i + 1][0]
+                if cuts_in_sentence:
+                    # Split this sentence at the silence gaps
+                    # First, finalize any accumulated group before this sentence
+                    if group_texts:
+                        grp_start = all_words[group_word_start].start_time
+                        grp_end = all_words[s_start - 1].end_time if s_start > 0 else grp_start
+                        combined = " ".join(group_texts)
+                        if combined.strip():
+                            segments.append((grp_start, grp_end, combined.strip()))
+                        group_texts = []
+
+                    # Now split this sentence at each silence gap
+                    # We'll collect word-index boundaries for sub-chunks
+                    chunk_boundaries = [s_start] + [c + 1 for c in cuts_in_sentence] + [s_end + 1]
+
+                    for cb_i in range(len(chunk_boundaries) - 1):
+                        chunk_w_start = chunk_boundaries[cb_i]
+                        chunk_w_end = chunk_boundaries[cb_i + 1] - 1
+                        if chunk_w_end < chunk_w_start:
+                            continue
+                        # Gather text for these words
+                        chunk_word_texts = [get_word_text(w) for w in range(chunk_w_start, chunk_w_end + 1)]
+                        chunk_text = " ".join(chunk_word_texts)
+                        t_start = all_words[chunk_w_start].start_time
+                        t_end = all_words[chunk_w_end].end_time
+                        if chunk_text.strip():
+                            segments.append((t_start, t_end, chunk_text.strip()))
+
+                    # Next sentence starts a fresh group
+                    if not is_last_sentence:
+                        group_word_start = sentence_ranges[si + 1][0]
+                    continue
+
+                # Check if there's a silence cut between this sentence and the previous group
+                if group_texts and s_start > 0:
+                    prev_word_idx = s_start - 1
+                    if prev_word_idx in silence_cuts:
+                        # Force-cut: finalize current group before this sentence
+                        grp_start = all_words[group_word_start].start_time
+                        grp_end = all_words[prev_word_idx].end_time
+                        combined = " ".join(group_texts)
+                        if combined.strip():
+                            segments.append((grp_start, grp_end, combined.strip()))
+                        group_texts = []
+                        group_word_start = s_start
+
+                # Add this sentence to the group
+                group_texts.append(s_text)
+                group_end_idx = s_end
+
+                grp_start_time = all_words[group_word_start].start_time
+                grp_end_time = all_words[min(group_end_idx, len(all_words) - 1)].end_time
+                grp_duration = grp_end_time - grp_start_time
+
+                # Also check: would continuing to next sentence cross a silence gap?
+                next_crosses_silence = False
+                if not is_last_sentence:
+                    next_s_start = sentence_ranges[si + 1][0]
+                    # Check if there's a silence gap between current end and next start
+                    for w in range(group_end_idx, next_s_start):
+                        if w in silence_cuts:
+                            next_crosses_silence = True
+                            break
+
+                if grp_duration >= min_duration or is_last_sentence or next_crosses_silence:
+                    combined = " ".join(group_texts)
+                    if combined.strip():
+                        segments.append((grp_start_time, grp_end_time, combined.strip()))
+                    group_texts = []
+                    if not is_last_sentence:
+                        group_word_start = sentence_ranges[si + 1][0]
+
+            # ── Step 4: Break oversized segments at commas ──
+            # Uses word timestamp text directly to find comma positions,
+            # avoiding word-count mismatches from text parsing.
+            if max_duration and max_duration > 0:
+                final_segments = []
+                for seg_start, seg_end, seg_text in segments:
+                    seg_duration = seg_end - seg_start
+                    if seg_duration <= max_duration:
+                        final_segments.append((seg_start, seg_end, seg_text))
+                        continue
+
+                    # Find word indices belonging to this segment
+                    seg_word_indices = [i for i, w in enumerate(all_words)
+                                        if w.start_time >= seg_start - 0.01
+                                        and w.end_time <= seg_end + 0.01]
+
+                    if not seg_word_indices:
+                        final_segments.append((seg_start, seg_end, seg_text))
+                        continue
+
+                    # Find comma split points (words whose text ends with ',')
+                    comma_indices = [wi for wi in seg_word_indices
+                                     if get_word_text(wi).endswith(',')]
+
+                    if not comma_indices:
+                        final_segments.append((seg_start, seg_end, seg_text))
+                        continue
+
+                    # Accumulate words, cutting at commas when duration thresholds met
+                    sub_start_idx = seg_word_indices[0]
+
+                    for ci, comma_wi in enumerate(comma_indices):
+                        is_last_comma = ci == len(comma_indices) - 1
+                        sub_start_time = all_words[sub_start_idx].start_time
+                        sub_end_time = all_words[comma_wi].end_time
+                        sub_dur = sub_end_time - sub_start_time
+
+                        should_cut = sub_dur >= min_duration and (sub_dur >= max_duration or is_last_comma)
+                        if should_cut:
+                            sub_text = " ".join(
+                                get_word_text(j)
+                                for j in range(sub_start_idx, comma_wi + 1)
+                            )
+                            if sub_text.strip():
+                                final_segments.append((sub_start_time, sub_end_time, sub_text.strip()))
+                            sub_start_idx = comma_wi + 1
+
+                    # Remaining words after last cut
+                    last_word_idx = seg_word_indices[-1]
+                    if sub_start_idx <= last_word_idx:
+                        sub_text = " ".join(
+                            get_word_text(j)
+                            for j in range(sub_start_idx, last_word_idx + 1)
+                        )
+                        sub_start_time = all_words[sub_start_idx].start_time
+                        sub_end_time = all_words[last_word_idx].end_time
+                        if sub_text.strip():
+                            final_segments.append((sub_start_time, sub_end_time, sub_text.strip()))
+
+                segments = final_segments
+
+            # ── Step 5: Trim leading/trailing silence on each segment ──
+            pad = 0.15  # small padding to keep around speech
+            trimmed = []
+            for seg_start, seg_end, seg_text in segments:
+                seg_words = [w for w in all_words
+                             if w.start_time >= seg_start - 0.05
+                             and w.end_time <= seg_end + 0.05]
+                if seg_words:
+                    first_start = seg_words[0].start_time
+                    last_end = seg_words[-1].end_time
+                    if first_start - seg_start > silence_trim:
+                        seg_start = max(0, first_start - pad)
+                    if seg_end - last_end > silence_trim:
+                        seg_end = last_end + pad
+                trimmed.append((seg_start, seg_end, seg_text))
+            segments = trimmed
+
+            # ── Step 6: Discard clips that are too short ──
+            if discard_under and discard_under > 0:
+                kept = []
+                discarded = 0
+                for seg_start, seg_end, seg_text in segments:
+                    if seg_end - seg_start >= discard_under:
+                        kept.append((seg_start, seg_end, seg_text))
+                    else:
+                        discarded += 1
+                if discarded:
+                    print(f"  {_DIM}Discarded {discarded} clip(s) under {discard_under}s{_RESET}")
+                segments = kept
 
             return segments
 
         def auto_split_audio_handler(clip_prefix, audio_file, folder, language, engine, asr_size,
-                                     split_min=4.0,
-                                     progress=gr.Progress()):
+                                     split_min=4.0, split_max=20.0, silence_trim=1.0,
+                                     discard_under=1.0, progress=gr.Progress()):
             """Auto-split a long audio file into training clips using word-level timestamps.
 
             Supports two engines:
@@ -956,12 +1180,17 @@ class PrepSamplesTool(Tool):
             try:
                 import numpy as np
 
-                # Check audio duration (ForcedAligner limit: 5 minutes)
+                # Check audio duration (ForcedAligner recommended limit: 5 minutes)
                 info = sf.info(audio_file)
                 duration = info.duration
+                bypass_limit = _user_config.get("bypass_split_limit", False)
                 if engine == "Qwen3 ASR" and duration > 300:
-                    return ("Audio exceeds 5 minute limit for Qwen3 ASR auto-split. "
-                            "Please trim the audio first, or use Whisper instead."), gr.update()
+                    if not bypass_limit:
+                        return ("Audio exceeds the recommended 5 minute limit for Qwen3 ASR auto-split. "
+                                "You can enable extended splitting in Settings, or use Whisper instead."), gr.update()
+                    else:
+                        print(f"{_YELLOW}[!] WARNING: Audio is {duration:.0f}s — exceeds 5 min recommended limit{_RESET}")
+                        print(f"{_YELLOW}    Extended splitting enabled — alignment accuracy may be reduced{_RESET}")
                 if duration < 3:
                     return "Audio too short for auto-splitting (minimum 3 seconds).", gr.update()
 
@@ -993,7 +1222,10 @@ class PrepSamplesTool(Tool):
                     if not full_text:
                         return "No speech detected in the audio.", gr.update()
 
-                    print(f"[Auto-Split] Whisper transcription: {full_text[:200]}...")
+                    print(f"\n{_CYAN}{'=' * 55}")
+                    print(" Auto-Split  |  Engine: Whisper")
+                    print(f"{'=' * 55}{_RESET}")
+                    print(f"{_DIM}Transcript: {full_text[:150]}{'...' if len(full_text) > 150 else ''}{_RESET}")
 
                     # Extract word timestamps from Whisper segments
                     # Whisper returns segments[].words[] with {word, start, end}
@@ -1013,11 +1245,11 @@ class PrepSamplesTool(Tool):
                     if not word_timestamps:
                         return "Whisper produced no word timestamps.", gr.update()
 
-                    print(f"[Auto-Split] Got {len(word_timestamps)} word timestamps from Whisper")
+                    print(f"{_GREEN}[OK]{_RESET} {len(word_timestamps)} word timestamps")
                     for j, wt in enumerate(word_timestamps[:5]):
-                        print(f"  [{j}] '{wt.text}' {wt.start_time:.2f}-{wt.end_time:.2f}")
+                        print(f"  {_DIM}{j + 1}. '{wt.text}' {wt.start_time:.2f}s - {wt.end_time:.2f}s{_RESET}")
                     if len(word_timestamps) > 5:
-                        print(f"  ... ({len(word_timestamps) - 5} more)")
+                        print(f"  {_DIM}... and {len(word_timestamps) - 5} more{_RESET}")
 
                 else:
                     # --- Qwen3 ASR path: transcribe + forced aligner ---
@@ -1035,8 +1267,12 @@ class PrepSamplesTool(Tool):
                     if not full_text:
                         return "No speech detected in the audio.", gr.update()
 
-                    print(f"[Auto-Split] Transcription: {full_text[:200]}...")
-                    print(f"[Auto-Split] Detected language: {detected_language}")
+                    print(f"\n{_CYAN}{'=' * 55}")
+                    print(f" Auto-Split  |  Engine: Qwen3 ASR ({asr_size})")
+                    print(f"{'=' * 55}{_RESET}")
+                    print(f"{_DIM}Transcript: {full_text[:150]}{'...' if len(full_text) > 150 else ''}{_RESET}")
+                    if detected_language:
+                        print(f"{_DIM}Language: {detected_language}{_RESET}")
 
                     # Use detected language for alignment if user didn't specify one
                     align_language = lang_option or detected_language
@@ -1064,23 +1300,27 @@ class PrepSamplesTool(Tool):
                         asr_manager.unload_forced_aligner()
                         return "Alignment produced no word timestamps.", gr.update()
 
-                    print(f"[Auto-Split] Got {len(word_timestamps)} word timestamps")
+                    print(f"{_GREEN}[OK]{_RESET} {len(word_timestamps)} word timestamps")
                     for j, wt in enumerate(word_timestamps[:5]):
-                        print(f"  [{j}] '{wt.text}' {wt.start_time:.2f}-{wt.end_time:.2f}")
+                        print(f"  {_DIM}{j + 1}. '{wt.text}' {wt.start_time:.2f}s - {wt.end_time:.2f}s{_RESET}")
                     if len(word_timestamps) > 5:
-                        print(f"  ... ({len(word_timestamps) - 5} more)")
+                        print(f"  {_DIM}... and {len(word_timestamps) - 5} more{_RESET}")
 
                 # Step 3: Split into segments at sentence boundaries
                 progress(0.50, desc="Splitting into segments...")
                 segments = split_into_segments(full_text, word_timestamps,
-                                               min_duration=split_min)
+                                               min_duration=split_min,
+                                               max_duration=split_max,
+                                               silence_trim=silence_trim,
+                                               discard_under=discard_under)
 
                 if not segments:
                     if engine == "Qwen3 ASR":
                         asr_manager.unload_forced_aligner()
                     return "Could not identify any segments to split.", gr.update()
 
-                print(f"[Auto-Split] Created {len(segments)} segments")
+                print(f"{_GREEN}[OK]{_RESET} Split into {len(segments)} segments")
+                print()
 
                 # Step 4: Read source audio and save clips
                 progress(0.55, desc="Reading source audio...")
@@ -1093,9 +1333,19 @@ class PrepSamplesTool(Tool):
                 base_dir = DATASETS_DIR / folder
                 base_dir.mkdir(parents=True, exist_ok=True)
 
+                # Find the next available clip number (avoid overwriting existing clips)
+                existing_numbers = []
+                for f in base_dir.glob(f"{clip_prefix}_*.wav"):
+                    # Extract the number suffix (e.g., "name_003.wav" -> 3)
+                    stem = f.stem
+                    suffix = stem[len(clip_prefix) + 1:]
+                    if suffix.isdigit():
+                        existing_numbers.append(int(suffix))
+                start_number = max(existing_numbers) + 1 if existing_numbers else 1
+
                 saved_count = 0
                 for i, (start_time, end_time, text) in enumerate(segments):
-                    clip_name = f"{clip_prefix}_{i + 1:03d}"
+                    clip_name = f"{clip_prefix}_{start_number + i:03d}"
 
                     start_sample = int(start_time * sr)
                     end_sample = int(end_time * sr)
@@ -1119,7 +1369,7 @@ class PrepSamplesTool(Tool):
 
                     saved_count += 1
                     clip_dur = end_time - start_time
-                    print(f"[Auto-Split] Clip {clip_name}: {clip_dur:.1f}s - {text[:60]}")
+                    print(f"  {_GREEN}>{_RESET} {clip_name}  {_DIM}{clip_dur:.1f}s{_RESET}  {text[:55]}{'...' if len(text) > 55 else ''}")
                     progress(0.55 + (0.40 * (i + 1) / len(segments)),
                              desc=f"Saving clip {i + 1}/{len(segments)}...")
 
@@ -1127,18 +1377,26 @@ class PrepSamplesTool(Tool):
                 if engine == "Qwen3 ASR":
                     asr_manager.unload_forced_aligner()
 
+                print(f"\n{_GREEN}{'=' * 55}")
+                print(f" Done! {saved_count} clips saved to {folder}/")
+                print(f"{'=' * 55}{_RESET}\n")
+
                 progress(1.0, desc="Done!")
                 if play_completion_beep:
                     play_completion_beep()
 
                 # Refresh file list
                 updated_files = get_dataset_files(folder)
-                return (f"Created {saved_count} clips from {duration:.1f}s audio "
-                        f"(saved to {folder}/)"), updated_files
+                status_msg = (f"Created {saved_count} clips from {duration:.1f}s audio "
+                              f"(saved to {folder}/)")
+                if engine == "Qwen3 ASR" and duration > 300:
+                    status_msg += ("\n⚠ Extended split mode: audio exceeded the recommended "
+                                   "5 min limit. Review clips for alignment accuracy.")
+                return status_msg, updated_files
 
             except Exception as e:
                 import traceback
-                print(f"[Auto-Split] Error:\n{traceback.format_exc()}")
+                print(f"{_RED}[Auto-Split] Error:\n{traceback.format_exc()}{_RESET}")
                 # Clean up aligner on error (Qwen3 only)
                 try:
                     if engine == "Qwen3 ASR":
@@ -1437,7 +1695,10 @@ class PrepSamplesTool(Tool):
                     components['finetune_folder_dropdown'],
                     components['whisper_language'],
                     components['transcribe_model'],
-                    components['split_min']],
+                    components['split_min'],
+                    components['split_max'],
+                    components['silence_trim'],
+                    components['discard_under']],
             outputs=[components['prep_status'], components['sample_lister'],
                      components['dataset_lister'], components['finetune_folder_dropdown']]
         )
@@ -1487,6 +1748,24 @@ class PrepSamplesTool(Tool):
             lambda x: save_preference("whisper_language", x),
             inputs=[components['whisper_language']],
             outputs=[]
+        )
+
+        # --- Save split settings ---
+        components['split_min'].change(
+            lambda x: save_preference("split_min", x),
+            inputs=[components['split_min']], outputs=[]
+        )
+        components['split_max'].change(
+            lambda x: save_preference("split_max", x),
+            inputs=[components['split_max']], outputs=[]
+        )
+        components['silence_trim'].change(
+            lambda x: save_preference("silence_trim", x),
+            inputs=[components['silence_trim']], outputs=[]
+        )
+        components['discard_under'].change(
+            lambda x: save_preference("discard_under", x),
+            inputs=[components['discard_under']], outputs=[]
         )
 
 

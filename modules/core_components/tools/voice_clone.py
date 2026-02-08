@@ -473,7 +473,7 @@ class VoiceCloneTool(Tool):
                     Engine: {engine_display}
                     Language: {language}
                     Seed: {seed}
-                    Text: {text_to_generate.strip()}
+                    Text: {' '.join(text_to_generate.split())}
                     """)
                 metadata_file.write_text(metadata, encoding="utf-8")
 

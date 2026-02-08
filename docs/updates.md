@@ -6,6 +6,7 @@
 **Auto-Split Audio**
 - **Automatic Audio Splitting** - Split long audio files into clean sentence-level clips using Qwen3 or Whisper's timestamp extraction.
 - **One-Click Dataset Creation** - Split audio and auto-save segments with transcripts directly into dataset folders
+- **Trim and discard Silent areas** - Uses the timestamp data to find and remove non verbal moments.
 
 **Unified ASR Engine**
 - **Unified ASR Dropdown** - Single dropdown for all transcription engines (Qwen3 ASR, VibeVoice ASR, Whisper) replacing the old radio + size selector

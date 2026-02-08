@@ -176,6 +176,13 @@ class SettingsTool(Tool):
                                             interactive=True
                                         )
 
+                                    components['bypass_split_limit'] = gr.Checkbox(
+                                        label="Allow Qwen3 extended audio splitting (beyond 5 min)",
+                                        value=_user_config.get("bypass_split_limit", False),
+                                        info="Qwen3 ASR alignment may be less accurate and \ndemand tons of VRAM for very long audio. Enable with caution.",
+                                        interactive=True
+                                    )
+
                             with gr.Column():
                                 gr.Markdown("### Audio Notifications")
                                 components['settings_audio_notifications'] = gr.Checkbox(
@@ -374,6 +381,12 @@ class SettingsTool(Tool):
                 inputs=[comp],
                 outputs=[components['settings_status']]
             )
+
+        components['bypass_split_limit'].change(
+            lambda x: save_preference("bypass_split_limit", x),
+            inputs=[components['bypass_split_limit']],
+            outputs=[]
+        )
 
         # Reset button handlers
         def reset_folder(folder_key):

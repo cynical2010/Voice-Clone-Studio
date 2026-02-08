@@ -737,7 +737,22 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
             return get_deepfilter_lazy._model_cache
 
         # Use the real clean_audio function with lazy model loader
-        return clean_audio_util(audio_file, directories.get('TEMP_DIR'), get_deepfilter_lazy, progress)
+        result = clean_audio_util(audio_file, directories.get('TEMP_DIR'), get_deepfilter_lazy, progress)
+
+        # Unload DeepFilterNet model from memory after use
+        if hasattr(get_deepfilter_lazy, '_model_cache'):
+            del get_deepfilter_lazy._model_cache
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except ImportError:
+                pass
+            import gc
+            gc.collect()
+            print("DeepFilterNet model unloaded")
+
+        return result
 
     shared_state = {
         # Config & Emotions
