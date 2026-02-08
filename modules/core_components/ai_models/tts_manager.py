@@ -737,7 +737,6 @@ class TTSManager:
         if cache_key in self._voice_prompt_cache:
             cached = self._voice_prompt_cache[cache_key]
             if cached['hash'] == expected_hash:
-                print(f"Using cached prompt: {sample_name}")
                 return cached['prompt']
 
         # Check disk cache
@@ -749,7 +748,6 @@ class TTSManager:
             cache_data = torch.load(cache_path, map_location='cpu', weights_only=False)
 
             if cache_data.get('hash') != expected_hash:
-                print(f"Sample changed, cache invalidated: {sample_name}")
                 return None
 
             # Move to device
@@ -775,7 +773,6 @@ class TTSManager:
                 'hash': expected_hash
             }
 
-            print(f"Loaded voice prompt from cache: {cache_path}")
             return prompt_items
 
         except Exception as e:
@@ -824,7 +821,6 @@ class TTSManager:
                 "version": "luxtts-1.0",
             }
             torch.save(cache_data, cache_path)
-            print(f"Saved LuxTTS prompt cache: {cache_path}")
             return True
         except Exception as e:
             print(f"Failed to save LuxTTS prompt: {e}")
@@ -838,7 +834,6 @@ class TTSManager:
         if cache_key in self._luxtts_prompt_cache:
             cached = self._luxtts_prompt_cache[cache_key]
             if cached.get("audio_hash") == expected_audio_hash:
-                print(f"Using in-memory cached LuxTTS prompt for: {sample_name}")
                 return cached["prompt"]
 
         # Check disk cache
@@ -851,14 +846,12 @@ class TTSManager:
             cache_data = torch.load(cache_path, map_location="cpu", weights_only=False)
 
             if cache_data.get("audio_hash") != expected_audio_hash:
-                print(f"LuxTTS sample changed, invalidating cache for: {sample_name}")
                 return None
 
             params = cache_data.get("params") or {}
             if round(float(params.get("rms", -1)), 6) != round(float(rms), 6) or int(
                 params.get("ref_duration", -1)
             ) != int(ref_duration):
-                print(f"LuxTTS params changed, invalidating cache for: {sample_name}")
                 return None
 
             cached_prompt = cache_data.get("prompt")
@@ -879,14 +872,47 @@ class TTSManager:
                 "audio_hash": expected_audio_hash,
             }
 
-            print(f"Loaded LuxTTS prompt from cache: {cache_path}")
             return prompt
 
         except Exception as e:
             print(f"Failed to load LuxTTS prompt cache: {e}")
             return None
 
-    def get_or_create_luxtts_prompt(self, sample_name, wav_path, rms=0.01, ref_duration=30, progress_callback=None):
+    def _encode_luxtts_prompt_direct(self, wav_path, ref_text, rms=0.01, ref_duration=30):
+        """Encode LuxTTS prompt directly using known transcript text (bypasses Whisper).
+
+        Replicates zipvoice's process_audio() but substitutes the known transcript
+        instead of running Whisper transcription.
+        """
+        import librosa
+        from zipvoice.utils.infer import rms_norm
+
+        lux_model = self.get_luxtts()
+
+        # Load audio at 24kHz (same as process_audio)
+        prompt_wav, sr = librosa.load(str(wav_path), sr=24000, duration=int(ref_duration))
+        prompt_wav = torch.from_numpy(prompt_wav).unsqueeze(0)
+        prompt_wav, prompt_rms = rms_norm(prompt_wav, float(rms))
+
+        # Extract features
+        prompt_features = lux_model.feature_extractor.extract(
+            prompt_wav, sampling_rate=24000
+        ).to(lux_model.device)
+        prompt_features = prompt_features.unsqueeze(0) * 0.1  # feat_scale=0.1
+
+        prompt_features_lens = torch.tensor([prompt_features.size(1)], device=lux_model.device)
+
+        # Tokenize the known transcript directly (no Whisper needed)
+        prompt_tokens = lux_model.tokenizer.texts_to_token_ids([ref_text])
+
+        return {
+            "prompt_tokens": prompt_tokens,
+            "prompt_features_lens": prompt_features_lens,
+            "prompt_features": prompt_features,
+            "prompt_rms": prompt_rms,
+        }
+
+    def get_or_create_luxtts_prompt(self, sample_name, wav_path, rms=0.01, ref_duration=30, ref_text=None, progress_callback=None):
         """Get cached LuxTTS encoded prompt or create a new one."""
         audio_hash = self.compute_audio_hash(wav_path)
 
@@ -904,10 +930,17 @@ class TTSManager:
         if progress_callback:
             progress_callback(0.2, desc="Encoding LuxTTS voice prompt (first time)...")
 
-        lux_model = self.get_luxtts()
-        encoded_prompt = lux_model.encode_prompt(
-            wav_path, duration=int(ref_duration), rms=float(rms)
-        )
+        # Use direct encoding with known text (bypasses Whisper entirely)
+        if ref_text:
+            encoded_prompt = self._encode_luxtts_prompt_direct(
+                wav_path, ref_text, rms=rms, ref_duration=ref_duration
+            )
+        else:
+            raise ValueError(
+                f"No transcript found for sample '{sample_name}'. "
+                "Please transcribe this sample first in the Prep Audio tab "
+                "(using Whisper or VibeVoice ASR), then try again."
+            )
 
         if progress_callback:
             progress_callback(0.35, desc="Caching LuxTTS voice prompt...")
@@ -927,7 +960,7 @@ class TTSManager:
         self, text, voice_sample_path, sample_name,
         num_steps=4, t_shift=0.5, speed=1.0,
         return_smooth=False, rms=0.01, ref_duration=30,
-        guidance_scale=3.0, seed=-1, progress_callback=None
+        guidance_scale=3.0, seed=-1, ref_text=None, progress_callback=None
     ):
         """Generate audio using LuxTTS voice cloning.
 
@@ -943,6 +976,7 @@ class TTSManager:
             ref_duration: How many seconds of reference audio to use (30 default, increase to 1000 if artifacts)
             guidance_scale: Classifier-free guidance scale (3.0 default)
             seed: Random seed (-1 for random)
+            ref_text: Known transcript of the voice sample (bypasses Whisper if provided)
             progress_callback: Optional Gradio progress callback
 
         Returns:
@@ -965,6 +999,7 @@ class TTSManager:
             wav_path=voice_sample_path,
             rms=rms,
             ref_duration=ref_duration,
+            ref_text=ref_text,
             progress_callback=progress_callback,
         )
 

@@ -354,6 +354,15 @@ class VoiceCloneTool(Tool):
             if not sample:
                 return None, f"❌ Sample '{sample_name}' not found."
 
+            # Check that sample has a transcript (required for all engines)
+            sample_ref_text = sample.get("ref_text") or sample.get("meta", {}).get("Text", "")
+            if not sample_ref_text.strip():
+                return None, (
+                    f"❌ No transcript found for sample '{sample_name}'.\n\n"
+                    "Please transcribe this sample first in the **Prep Audio** tab "
+                    "(using Whisper or VibeVoice ASR), then try again."
+                )
+
             try:
                 # Set the seed for reproducibility
                 seed = int(seed) if seed is not None else -1
@@ -440,6 +449,7 @@ class VoiceCloneTool(Tool):
                         ref_duration=int(lux_ref_duration),
                         guidance_scale=float(lux_guidance_scale),
                         seed=seed,
+                        ref_text=sample.get("ref_text") or sample.get("meta", {}).get("Text"),
                         progress_callback=progress,
                     )
                     wavs = [audio_data]

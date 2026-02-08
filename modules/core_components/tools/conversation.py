@@ -606,6 +606,23 @@ class ConversationTool(Tool):
                             break
             return samples
 
+        def validate_samples_have_transcripts(voice_samples_dict):
+            """Check that all voice samples have transcripts. Returns error message or None."""
+            missing = []
+            for speaker_key, data in voice_samples_dict.items():
+                ref_text = data.get("ref_text", "").strip()
+                if not ref_text:
+                    name = data.get("name", speaker_key)
+                    missing.append(name)
+            if missing:
+                names = ", ".join(missing)
+                return (
+                    f"No transcript found for: {names}.\n\n"
+                    "Please transcribe these samples first in the **Prep Audio** tab "
+                    "(using Whisper or VibeVoice ASR), then try again."
+                )
+            return None
+
         def preprocess_conversation_script(script):
             """Add [1]: to lines without speaker labels."""
             lines = script.strip().split('\n')
@@ -1150,6 +1167,11 @@ class ConversationTool(Tool):
             if not voice_samples_dict:
                 return None, "Error: Please select at least one voice sample."
 
+            # Check all samples have transcripts
+            transcript_error = validate_samples_have_transcripts(voice_samples_dict)
+            if transcript_error:
+                return None, f"Error: {transcript_error}"
+
             conversation_data = preprocess_conversation_script(conversation_data)
 
             try:
@@ -1171,7 +1193,7 @@ class ConversationTool(Tool):
                                 speaker_key = f"Speaker{speaker_num}"
                                 if speaker_key in voice_samples_dict and text:
                                     sample_data = voice_samples_dict[speaker_key]
-                                    lines.append((speaker_key, sample_data["wav_path"], sample_data.get("name", speaker_key), text))
+                                    lines.append((speaker_key, sample_data["wav_path"], sample_data.get("name", speaker_key), text, sample_data.get("ref_text", "")))
 
                 if not lines:
                     return None, "Error: No valid conversation lines found. Use format: [N]: Text (N=1-8)"
@@ -1191,7 +1213,7 @@ class ConversationTool(Tool):
                 all_segments = []
                 sr = 48000  # LuxTTS outputs at 48kHz
 
-                for i, (speaker_key, wav_path, sample_name, text) in enumerate(lines):
+                for i, (speaker_key, wav_path, sample_name, text, ref_text) in enumerate(lines):
                     progress_val = 0.1 + (0.8 * i / len(lines))
 
                     # Strip any (style) markers — LuxTTS doesn't support them
@@ -1213,6 +1235,7 @@ class ConversationTool(Tool):
                         ref_duration=ref_duration,
                         guidance_scale=guidance_scale,
                         seed=seed,
+                        ref_text=ref_text or None,
                     )
                     sr = audio_sr  # Should be 48000
 
@@ -1244,7 +1267,7 @@ class ConversationTool(Tool):
 
                 # Save metadata
                 metadata_file = output_file.with_suffix(".txt")
-                speakers_used = list(set(k for k, _, _, _ in lines))
+                speakers_used = list(set(k for k, _, _, _, _ in lines))
                 metadata = dedent(f"""\
                     Generated: {timestamp}
                     Type: LuxTTS Conversation
