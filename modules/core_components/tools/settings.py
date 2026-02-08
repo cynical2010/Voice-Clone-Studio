@@ -158,6 +158,23 @@ class SettingsTool(Tool):
                                             value=is_enabled,
                                             interactive=True
                                         )
+  
+                            with gr.Column():
+                                gr.Markdown("### Available Transcription Engines")
+
+                                ASR_ENGINES = shared_state.get('ASR_ENGINES', {})
+                                asr_settings = _user_config.get("enabled_asr_engines", {})
+
+                                with gr.Column():
+                                    for engine_key, engine_info in ASR_ENGINES.items():
+                                        is_enabled = asr_settings.get(
+                                            engine_key, engine_info.get("default_enabled", True)
+                                        )
+                                        components[f'asr_toggle_{engine_key}'] = gr.Checkbox(
+                                            label=engine_info["label"],
+                                            value=is_enabled,
+                                            interactive=True
+                                        )
 
                             with gr.Column():
                                 gr.Markdown("### Audio Notifications")
@@ -166,9 +183,6 @@ class SettingsTool(Tool):
                                     value=_user_config.get("browser_notifications", True),
                                     info="Play sound when audio generation completes"
                                 )
-
-                            with gr.Column():
-                                gr.Markdown("")
 
                         gr.Markdown("### Folder Paths")
                         gr.Markdown("Configure where files are stored. Changes apply after clicking **Apply Changes**.")
@@ -338,6 +352,25 @@ class SettingsTool(Tool):
             comp = components[f'engine_toggle_{engine_key}']
             comp.change(
                 lambda enabled, k=engine_key: toggle_engine(k, enabled),
+                inputs=[comp],
+                outputs=[components['settings_status']]
+            )
+
+        # ASR engine toggle handlers
+        ASR_ENGINES = shared_state.get('ASR_ENGINES', {})
+
+        def toggle_asr_engine(engine_key, enabled):
+            """Save ASR engine visibility to config."""
+            if "enabled_asr_engines" not in _user_config:
+                _user_config["enabled_asr_engines"] = {}
+            _user_config["enabled_asr_engines"][engine_key] = enabled
+            save_preference("enabled_asr_engines", _user_config["enabled_asr_engines"])
+            return "Restart the app to apply changes."
+
+        for engine_key in ASR_ENGINES:
+            comp = components[f'asr_toggle_{engine_key}']
+            comp.change(
+                lambda enabled, k=engine_key: toggle_asr_engine(k, enabled),
                 inputs=[comp],
                 outputs=[components['settings_status']]
             )

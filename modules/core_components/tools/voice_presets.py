@@ -29,7 +29,7 @@ class VoicePresetsTool(Tool):
     config = ToolConfig(
         name="Voice Presets",
         module_name="tool_voice_presets",
-        description="Generate with preset voices or trained models",
+        description="Generate with trained models or Qwen3's Style-Controlled Premium Speakers",
         enabled=True,
         category="generation"
     )
@@ -62,10 +62,10 @@ class VoicePresetsTool(Tool):
 
         with gr.TabItem("Voice Presets") as voice_presets_tab:
             components['voice_presets_tab'] = voice_presets_tab
-            gr.Markdown("Use Qwen3-TTS pre-trained models or Custom Trained models with style control")
+            gr.Markdown("Use your Qwen3-TTS trained models or Qwen3's Speakers with style control")
 
-            initial_voice_type = _user_config.get("voice_type", "Premium Speakers")
-            is_premium = (initial_voice_type.strip() == "Premium Speakers")
+            initial_voice_type = _user_config.get("voice_type", "Trained Models")
+            is_premium = (initial_voice_type.strip() == "Qwen Speakers")
 
             with gr.Row():
                 # Left - Speaker selection
@@ -73,19 +73,19 @@ class VoicePresetsTool(Tool):
                     gr.Markdown("### Select Voice Type")
 
                     components['voice_type_radio'] = gr.Radio(
-                        choices=["Premium Speakers", "Trained Models"],
+                        choices=["Trained Models", "Qwen Speakers"],
                         value=initial_voice_type,
                         label="Voice Source"
                     )
 
-                    # Premium speakers dropdown
-                    components['premium_section'] = gr.Column(visible=is_premium)
-                    with components['premium_section']:
+                    # Qwen Speakers dropdown
+                    components['speaker_section'] = gr.Column(visible=is_premium)
+                    with components['speaker_section']:
                         speaker_choices = CUSTOM_VOICE_SPEAKERS
                         components['custom_speaker_dropdown'] = gr.Dropdown(
                             choices=speaker_choices,
                             label="Speaker",
-                            info="Choose a premium voice"
+                            info="Choose a Qwen speaker voice"
                         )
 
                         components['custom_model_size'] = gr.Dropdown(
@@ -97,7 +97,7 @@ class VoicePresetsTool(Tool):
                         )
 
                         premium_speaker_guide = dedent("""\
-                            **Premium Speakers:**
+                            **Qwen Speakers:**
 
                             | Speaker | Voice | Language |
                             |---------|-------|----------|
@@ -463,10 +463,10 @@ class VoicePresetsTool(Tool):
             is_premium = voice_type == "Premium Speakers"
 
             if is_premium:
-                # Return in order: premium_section, trained_section, instruct_input, emotion_row, emotion_buttons_row,
+                # Return in order: speaker_section, trained_section, instruct_input, emotion_row, emotion_buttons_row,
                 # emotion_preset, emotion_intensity, temperature, top_p, repetition_penalty
                 return (
-                    gr.update(visible=True),   # premium_section
+                    gr.update(visible=True),   # speaker_section
                     gr.update(visible=False),  # trained_section
                     gr.update(visible=True),   # instruct_input
                     gr.update(visible=False),  # emotion_row
@@ -479,7 +479,7 @@ class VoicePresetsTool(Tool):
                 )
             else:
                 return (
-                    gr.update(visible=False),  # premium_section
+                    gr.update(visible=False),  # speaker_section
                     gr.update(visible=True),   # trained_section
                     gr.update(visible=False),  # instruct_input
                     gr.update(visible=True),   # emotion_row
@@ -533,7 +533,7 @@ class VoicePresetsTool(Tool):
         # Only wire events for components that exist (not None)
         if components.get('voice_type_radio') is not None:
             outputs = [
-                components['premium_section'], components['trained_section'],
+                components['speaker_section'], components['trained_section'],
                 components['custom_instruct_input'],
                 components.get('custom_emotion_row'),
                 components.get('custom_emotion_buttons_row'),

@@ -26,7 +26,7 @@ set LUXTTS_CHOICE=%errorlevel%
 echo.
 
 echo ========================================
-echo Optional: Install Qwen3 ASR speech recognition?
+echo Optional (Highly Recommended): Install Qwen3 ASR speech recognition?
 echo Qwen3 ASR provides high-quality multilingual speech recognition.
 echo Supports 52 languages with Small (0.6B) and Large (1.7B) models.
 echo Note: This will update transformers to 4.57.6+
@@ -37,6 +37,18 @@ echo   2. No  - Skip (DEFAULT)
 echo.
 choice /C 12 /T 15 /D 2 /M "Install Qwen3 ASR?"
 set QWEN3ASR_CHOICE=%errorlevel%
+echo.
+
+echo ========================================
+echo Optional: Install Whisper speech recognition?
+echo OpenAI Whisper is an alternative transcription engine.
+echo ========================================
+echo.
+echo   1. Yes - Install Whisper
+echo   2. No  - Skip (DEFAULT)
+echo.
+choice /C 12 /T 15 /D 2 /M "Install Whisper?"
+set WHISPER_CHOICE=%errorlevel%
 echo.
 echo All questions answered - installing now...
 echo.
@@ -188,6 +200,24 @@ goto :qwen3asr_done
 :skip_qwen3asr
 echo Skipping Qwen3 ASR installation.
 :qwen3asr_done
+echo.
+
+REM Whisper
+if not "%WHISPER_CHOICE%"=="1" goto :skip_whisper
+
+echo.
+echo Installing Whisper...
+pip install openai-whisper
+if %errorlevel% neq 0 (
+    echo WARNING: Whisper installation failed.
+    goto :skip_whisper
+)
+echo Whisper installed successfully!
+goto :whisper_done
+
+:skip_whisper
+echo Skipping Whisper installation.
+:whisper_done
 echo.
 
 echo ========================================

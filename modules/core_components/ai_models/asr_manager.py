@@ -30,6 +30,7 @@ class ASRManager:
         self._whisper_model = None
         self._vibevoice_asr_model = None
         self._qwen3_asr_model = None
+        self._qwen3_aligner_model = None
 
         # Availability flags
         self.whisper_available = self._check_whisper_available()
@@ -210,7 +211,7 @@ class ASRManager:
                     self.model = model
 
                 def transcribe(self, audio_path, **kwargs):
-                    """Transcribe audio file. Returns dict with 'text' key."""
+                    """Transcribe audio file. Returns dict with 'text' and 'language' keys."""
                     import logging
                     language = kwargs.get("language", None)
                     # Suppress "temperature not valid" warning from transformers generate()
@@ -223,12 +224,65 @@ class ASRManager:
                         gen_logger.setLevel(prev_level)
                     print(f"[Qwen3 ASR Raw Result] {results}")
                     text = results[0].text if results else ""
-                    return {"text": text}
+                    detected_language = results[0].language if results else None
+                    return {"text": text, "language": detected_language}
 
             self._qwen3_asr_model = Qwen3ASRWrapper(model)
             print("Qwen3 ASR model loaded!")
 
         return self._qwen3_asr_model
+
+    def get_qwen3_forced_aligner(self):
+        """Load Qwen3 ForcedAligner for word-level timestamps.
+
+        Supports up to 5 minutes of audio in 11 languages:
+        Chinese, English, Cantonese, French, German, Italian,
+        Japanese, Korean, Portuguese, Russian, Spanish.
+        """
+        if not self.qwen3_asr_available:
+            raise ImportError(
+                "qwen-asr package is not installed.\n"
+                "Install with: pip install -U qwen-asr"
+            )
+
+        if self._qwen3_aligner_model is None:
+            print("Loading Qwen3 ForcedAligner...")
+            from qwen_asr import Qwen3ForcedAligner
+
+            model_name = "Qwen/Qwen3-ForcedAligner-0.6B"
+            device = get_device()
+            dtype = get_dtype(device)
+
+            # Check for local model
+            offline_mode = self.user_config.get("offline_mode", False)
+            local_path = check_model_available_locally(model_name)
+            if local_path:
+                print(f"Found local model: {local_path}")
+                model_to_load = str(local_path)
+            elif offline_mode:
+                raise RuntimeError(
+                    f"Offline mode enabled but model not available locally: {model_name}\n"
+                    f"To use offline mode, download the model first or disable offline mode in Settings."
+                )
+            else:
+                model_to_load = model_name
+
+            self._qwen3_aligner_model = Qwen3ForcedAligner.from_pretrained(
+                model_to_load,
+                dtype=dtype,
+                device_map=device,
+            )
+            print("Qwen3 ForcedAligner loaded!")
+
+        return self._qwen3_aligner_model
+
+    def unload_forced_aligner(self):
+        """Unload forced aligner to free VRAM."""
+        if self._qwen3_aligner_model is not None:
+            del self._qwen3_aligner_model
+            self._qwen3_aligner_model = None
+            empty_cuda_cache()
+            print("Qwen3 ForcedAligner unloaded")
 
     def get_vibevoice_asr(self):
         """Load VibeVoice ASR model."""
@@ -387,6 +441,11 @@ class ASRManager:
             del self._qwen3_asr_model
             self._qwen3_asr_model = None
             freed.append("Qwen3 ASR")
+
+        if self._qwen3_aligner_model is not None:
+            del self._qwen3_aligner_model
+            self._qwen3_aligner_model = None
+            freed.append("Qwen3 ForcedAligner")
 
         if freed:
             empty_cuda_cache()

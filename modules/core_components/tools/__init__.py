@@ -290,7 +290,7 @@ def load_config():
         "models_folder": "models",
         "trained_models_folder": "models",
         "emotions": None,
-        "conv_model_type": "Qwen CustomVoice",
+        "conv_model_type": "Qwen Speakers",
         "conv_model_size": "Large",
         "conv_base_model_size": "Large",
         "vibevoice_model_size": "Small",
@@ -763,6 +763,9 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
         'VOICE_CLONE_OPTIONS': constants.get('VOICE_CLONE_OPTIONS'),
         'DEFAULT_VOICE_CLONE_MODEL': constants.get('DEFAULT_VOICE_CLONE_MODEL'),
         'TTS_ENGINES': constants.get('TTS_ENGINES', {}),
+        'ASR_ENGINES': constants.get('ASR_ENGINES', {}),
+        'ASR_OPTIONS': constants.get('ASR_OPTIONS', []),
+        'DEFAULT_ASR_MODEL': constants.get('DEFAULT_ASR_MODEL', 'Qwen3 ASR - Large'),
         'WHISPER_AVAILABLE': WHISPER_AVAILABLE,
         'QWEN3_ASR_AVAILABLE': QWEN3_ASR_AVAILABLE,
         'DEEPFILTER_AVAILABLE': DEEPFILTER_AVAILABLE,
@@ -888,7 +891,10 @@ def run_tool_standalone(ToolClass, port=7860, title="Tool - Standalone", extra_s
         MODEL_SIZES_VIBEVOICE,
         VOICE_CLONE_OPTIONS,
         DEFAULT_VOICE_CLONE_MODEL,
-        TTS_ENGINES
+        TTS_ENGINES,
+        ASR_ENGINES,
+        ASR_OPTIONS,
+        DEFAULT_ASR_MODEL
     )
 
     # Find project root
@@ -945,6 +951,9 @@ def run_tool_standalone(ToolClass, port=7860, title="Tool - Standalone", extra_s
                 'VOICE_CLONE_OPTIONS': VOICE_CLONE_OPTIONS,
                 'DEFAULT_VOICE_CLONE_MODEL': DEFAULT_VOICE_CLONE_MODEL,
                 'TTS_ENGINES': TTS_ENGINES,
+                'ASR_ENGINES': ASR_ENGINES,
+                'ASR_OPTIONS': ASR_OPTIONS,
+                'DEFAULT_ASR_MODEL': DEFAULT_ASR_MODEL,
             },
             confirm_trigger=confirm_trigger,
             input_trigger=input_trigger

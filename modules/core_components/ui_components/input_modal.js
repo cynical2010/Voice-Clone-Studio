@@ -1,5 +1,41 @@
 // Global validation function storage
 window.inputModalValidation = null;
+// Existing files list for overwrite detection (set before opening modal)
+window.inputModalExistingFiles = null;
+
+function _normalizeInputName(name) {
+  // Match the Python cleaning: keep alphanumeric, dash, underscore, space; replace spaces with _
+  return name.replace(/[^a-zA-Z0-9\-_ ]/g, '').trim().replace(/ /g, '_');
+}
+
+function _showConfirmBar() {
+  const confirmBar = document.getElementById('input-modal-confirm-bar');
+  const mainActions = document.getElementById('input-modal-main-actions');
+  const inputField = document.getElementById('input-modal-field');
+  if (confirmBar) confirmBar.classList.add('show');
+  if (mainActions) mainActions.style.display = 'none';
+  if (inputField) inputField.disabled = true;
+}
+
+function _hideConfirmBar() {
+  const confirmBar = document.getElementById('input-modal-confirm-bar');
+  const mainActions = document.getElementById('input-modal-main-actions');
+  const inputField = document.getElementById('input-modal-field');
+  if (confirmBar) confirmBar.classList.remove('show');
+  if (mainActions) mainActions.style.display = '';
+  if (inputField) {
+    inputField.disabled = false;
+    inputField.focus();
+  }
+}
+
+function _forceSubmit() {
+  // Skip overwrite check and submit directly
+  const submitBtn = document.getElementById('input-modal-submit-btn');
+  _hideConfirmBar();
+  window.inputModalExistingFiles = null; // Clear so check is skipped
+  submitInputModalValue('submit', submitBtn);
+}
 
 function submitInputModalValue(action, button) {
   const overlay = document.getElementById('input-modal-overlay');
@@ -33,22 +69,37 @@ function submitInputModalValue(action, button) {
         return; // Stop here, don't close modal or trigger
       }
     }
+
+    // Check for overwrite if existing files list is provided
+    if (window.inputModalExistingFiles && Array.isArray(window.inputModalExistingFiles)) {
+      const cleanName = _normalizeInputName(valueToSubmit).toLowerCase();
+      if (cleanName && window.inputModalExistingFiles.some(f => f.toLowerCase() === cleanName)) {
+        _showConfirmBar();
+        return; // Don't submit yet, wait for overwrite confirmation
+      }
+    }
   } else {
     overlay.classList.remove('show');
     inputField.value = '';
+    inputField.disabled = false;
     if (errorEl) {
       errorEl.classList.remove('show');
     }
     window.inputModalValidation = null;
+    window.inputModalExistingFiles = null;
+    _hideConfirmBar();
     return; // Exit without triggering anything
   }
 
   overlay.classList.remove('show');
   inputField.value = '';
+  inputField.disabled = false;
   if (errorEl) {
     errorEl.classList.remove('show');
   }
-  window.inputModalValidation = null; // Clear validation
+  window.inputModalValidation = null;
+  window.inputModalExistingFiles = null;
+  _hideConfirmBar();
 
   // Get context from button's data attribute
   const context = button ? button.getAttribute('data-context') || '' : '';
@@ -127,8 +178,11 @@ window.addEventListener('DOMContentLoaded', () => {
           messageEl.textContent = messageEl.dataset.originalMessage;
         }
       }
+      // Hide confirm bar when user edits the name
+      _hideConfirmBar();
     });
   }
+
 });
 
 // Close on Escape key
