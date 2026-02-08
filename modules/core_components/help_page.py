@@ -46,10 +46,10 @@ def show_voice_clone_help():
         &nbsp;
 
         #### Performance Tips:
-        - ⚡ **First generation** for a sample takes longer (creates prompt cache)
-        - ⚡ **Subsequent generations** use cached prompt and are much faster
-        - 🔄 Cache is **per model size** - switching sizes recreates cache
-        - 💾 Prompts are saved to `samples/` folder as `.prompt` files
+        - ⚡ **First generation** for a sample takes longer (creates cache)
+        - ⚡ **Subsequent generations** use cache and are faster
+        - 🔄 Cache is **per model size** - switching sizes recreates cache if needed
+        - 💾 Caches are saved to `samples/` folder as `.pt` files
 
         &nbsp;
 

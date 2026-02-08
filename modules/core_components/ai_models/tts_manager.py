@@ -8,7 +8,6 @@ import torch
 import hashlib
 from pathlib import Path
 from typing import Dict, Tuple, Optional
-from qwen_tts import Qwen3TTSModel
 
 from .model_utils import (
     get_device, get_dtype, get_attention_implementation,
@@ -38,9 +37,11 @@ class TTSManager:
         self._qwen3_custom_voice_size = None
         self._vibevoice_tts_model = None
         self._vibevoice_tts_size = None
+        self._luxtts_model = None
 
         # Prompt cache
         self._voice_prompt_cache = {}
+        self._luxtts_prompt_cache = {}
         self._last_loaded_model = None
 
     def _check_and_unload_if_different(self, model_id: str):
@@ -110,6 +111,8 @@ class TTSManager:
         self._check_and_unload_if_different(model_id)
 
         if self._qwen3_base_model is None:
+            from qwen_tts import Qwen3TTSModel
+
             model_name = f"Qwen/Qwen3-TTS-12Hz-{size}-Base"
             print(f"Loading {model_name}...")
 
@@ -130,6 +133,8 @@ class TTSManager:
         self._check_and_unload_if_different("qwen3_voice_design")
 
         if self._qwen3_voice_design_model is None:
+            from qwen_tts import Qwen3TTSModel
+
             print("Loading Qwen3 VoiceDesign model (1.7B)...")
 
             self._qwen3_voice_design_model, _ = self._load_model_with_attention(
@@ -149,6 +154,8 @@ class TTSManager:
         self._check_and_unload_if_different(model_id)
 
         if self._qwen3_custom_voice_model is None:
+            from qwen_tts import Qwen3TTSModel
+
             model_name = f"Qwen/Qwen3-TTS-12Hz-{size}-CustomVoice"
             print(f"Loading {model_name}...")
 
@@ -215,6 +222,49 @@ class TTSManager:
 
         return self._vibevoice_tts_model
 
+    def get_luxtts(self):
+        """Load LuxTTS model (lazy import to avoid slowing app startup)."""
+        self._check_and_unload_if_different("luxtts")
+
+        if self._luxtts_model is None:
+            print("Loading LuxTTS model...")
+            try:
+                import warnings
+                import logging
+
+                # Suppress k2 import warning — PyTorch fallback works fine
+                k2_logger = logging.getLogger()
+                prev_level = k2_logger.level
+                k2_logger.setLevel(logging.ERROR)
+
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message=".*k2.*")
+                    warnings.filterwarnings("ignore", category=FutureWarning, message=".*torch.cuda.amp.autocast.*")
+                    from zipvoice.luxvoice import LuxTTS
+
+                    if torch.cuda.is_available():
+                        self._luxtts_model = LuxTTS("YatharthS/LuxTTS", device="cuda")
+                    else:
+                        threads = int(self.user_config.get("luxtts_cpu_threads", 2))
+                        self._luxtts_model = LuxTTS(
+                            "YatharthS/LuxTTS", device="cpu", threads=max(1, threads)
+                        )
+
+                k2_logger.setLevel(prev_level)
+
+                print("LuxTTS loaded!")
+
+            except ImportError as e:
+                raise ImportError(
+                    f"LuxTTS not available: {e}\n"
+                    "Install with: pip install zipvoice@git+https://github.com/ysharma3501/LuxTTS.git"
+                )
+            except Exception as e:
+                print(f"Error loading LuxTTS: {e}")
+                raise
+
+        return self._luxtts_model
+
     def unload_all(self):
         """Unload all TTS models to free VRAM."""
         freed = []
@@ -238,6 +288,11 @@ class TTSManager:
             del self._vibevoice_tts_model
             self._vibevoice_tts_model = None
             freed.append("VibeVoice TTS")
+
+        if self._luxtts_model is not None:
+            del self._luxtts_model
+            self._luxtts_model = None
+            freed.append("LuxTTS")
 
         if freed:
             empty_cuda_cache()
@@ -726,6 +781,219 @@ class TTSManager:
         except Exception as e:
             print(f"Failed to load voice prompt cache: {e}")
             return None
+
+    # ============================================================
+    # LUXTTS PROMPT CACHING
+    # ============================================================
+
+    def compute_audio_hash(self, wav_path):
+        """Compute a hash of the raw audio file bytes (used for LuxTTS prompt caching)."""
+        hasher = hashlib.md5()
+        with open(wav_path, "rb") as f:
+            hasher.update(f.read())
+        return hasher.hexdigest()
+
+    def get_luxtts_prompt_cache_path(self, sample_name):
+        """Get the path to the cached LuxTTS encoded prompt file."""
+        return self.samples_dir / f"{sample_name}_luxtts.pt"
+
+    def save_luxtts_prompt(self, sample_name, encoded_prompt, audio_hash, rms=0.01, ref_duration=30):
+        """Save LuxTTS encoded prompt to disk (CPU tensors only)."""
+        cache_path = self.get_luxtts_prompt_cache_path(sample_name)
+
+        try:
+            if isinstance(encoded_prompt, dict):
+                cpu_prompt = {}
+                for key, value in encoded_prompt.items():
+                    cpu_prompt[key] = value.cpu() if isinstance(value, torch.Tensor) else value
+            elif isinstance(encoded_prompt, (list, tuple)):
+                cpu_prompt = [
+                    item.cpu() if isinstance(item, torch.Tensor) else item
+                    for item in encoded_prompt
+                ]
+            else:
+                cpu_prompt = encoded_prompt.cpu() if isinstance(encoded_prompt, torch.Tensor) else encoded_prompt
+
+            cache_data = {
+                "prompt": cpu_prompt,
+                "audio_hash": audio_hash,
+                "params": {
+                    "rms": round(float(rms), 6),
+                    "ref_duration": int(ref_duration),
+                },
+                "version": "luxtts-1.0",
+            }
+            torch.save(cache_data, cache_path)
+            print(f"Saved LuxTTS prompt cache: {cache_path}")
+            return True
+        except Exception as e:
+            print(f"Failed to save LuxTTS prompt: {e}")
+            return False
+
+    def load_luxtts_prompt(self, sample_name, expected_audio_hash, rms=0.01, ref_duration=30):
+        """Load LuxTTS encoded prompt from disk/memory if valid."""
+        cache_key = sample_name
+
+        # Check memory cache
+        if cache_key in self._luxtts_prompt_cache:
+            cached = self._luxtts_prompt_cache[cache_key]
+            if cached.get("audio_hash") == expected_audio_hash:
+                print(f"Using in-memory cached LuxTTS prompt for: {sample_name}")
+                return cached["prompt"]
+
+        # Check disk cache
+        cache_path = self.get_luxtts_prompt_cache_path(sample_name)
+        if not cache_path.exists():
+            return None
+
+        try:
+            device = get_device()
+            cache_data = torch.load(cache_path, map_location="cpu", weights_only=False)
+
+            if cache_data.get("audio_hash") != expected_audio_hash:
+                print(f"LuxTTS sample changed, invalidating cache for: {sample_name}")
+                return None
+
+            params = cache_data.get("params") or {}
+            if round(float(params.get("rms", -1)), 6) != round(float(rms), 6) or int(
+                params.get("ref_duration", -1)
+            ) != int(ref_duration):
+                print(f"LuxTTS params changed, invalidating cache for: {sample_name}")
+                return None
+
+            cached_prompt = cache_data.get("prompt")
+            if isinstance(cached_prompt, dict):
+                prompt = {}
+                for key, value in cached_prompt.items():
+                    prompt[key] = value.to(device) if isinstance(value, torch.Tensor) else value
+            elif isinstance(cached_prompt, (list, tuple)):
+                prompt = [
+                    item.to(device) if isinstance(item, torch.Tensor) else item
+                    for item in cached_prompt
+                ]
+            else:
+                prompt = cached_prompt.to(device) if isinstance(cached_prompt, torch.Tensor) else cached_prompt
+
+            self._luxtts_prompt_cache[cache_key] = {
+                "prompt": prompt,
+                "audio_hash": expected_audio_hash,
+            }
+
+            print(f"Loaded LuxTTS prompt from cache: {cache_path}")
+            return prompt
+
+        except Exception as e:
+            print(f"Failed to load LuxTTS prompt cache: {e}")
+            return None
+
+    def get_or_create_luxtts_prompt(self, sample_name, wav_path, rms=0.01, ref_duration=30, progress_callback=None):
+        """Get cached LuxTTS encoded prompt or create a new one."""
+        audio_hash = self.compute_audio_hash(wav_path)
+
+        cached = self.load_luxtts_prompt(
+            sample_name,
+            expected_audio_hash=audio_hash,
+            rms=rms,
+            ref_duration=ref_duration,
+        )
+        if cached is not None:
+            if progress_callback:
+                progress_callback(0.35, desc="Using cached LuxTTS voice prompt...")
+            return cached, True
+
+        if progress_callback:
+            progress_callback(0.2, desc="Encoding LuxTTS voice prompt (first time)...")
+
+        lux_model = self.get_luxtts()
+        encoded_prompt = lux_model.encode_prompt(
+            wav_path, duration=int(ref_duration), rms=float(rms)
+        )
+
+        if progress_callback:
+            progress_callback(0.35, desc="Caching LuxTTS voice prompt...")
+
+        self.save_luxtts_prompt(
+            sample_name, encoded_prompt, audio_hash, rms=rms, ref_duration=ref_duration
+        )
+
+        self._luxtts_prompt_cache[sample_name] = {
+            "prompt": encoded_prompt,
+            "audio_hash": audio_hash,
+        }
+
+        return encoded_prompt, False
+
+    def generate_voice_clone_luxtts(
+        self, text, voice_sample_path, sample_name,
+        num_steps=4, t_shift=0.5, speed=1.0,
+        return_smooth=False, rms=0.01, ref_duration=30,
+        guidance_scale=3.0, seed=-1, progress_callback=None
+    ):
+        """Generate audio using LuxTTS voice cloning.
+
+        Args:
+            text: Text to generate
+            voice_sample_path: Path to voice sample WAV file
+            sample_name: Name of the sample (for caching)
+            num_steps: Sampling steps (3-4 recommended)
+            t_shift: Sampling parameter (higher = better quality but more pronunciation errors)
+            speed: Speed multiplier (lower=slower)
+            return_smooth: Smoother output (may reduce metallic artifacts)
+            rms: Loudness (0.01 recommended)
+            ref_duration: How many seconds of reference audio to use (30 default, increase to 1000 if artifacts)
+            guidance_scale: Classifier-free guidance scale (3.0 default)
+            seed: Random seed (-1 for random)
+            progress_callback: Optional Gradio progress callback
+
+        Returns:
+            Tuple: (audio_array, sample_rate)
+        """
+        import random
+        import numpy as np
+
+        # Set seed for reproducibility
+        if seed < 0:
+            seed = random.randint(0, 2147483647)
+
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+
+        # Get or create encoded prompt (with caching)
+        encoded_prompt, was_cached = self.get_or_create_luxtts_prompt(
+            sample_name=sample_name,
+            wav_path=voice_sample_path,
+            rms=rms,
+            ref_duration=ref_duration,
+            progress_callback=progress_callback,
+        )
+
+        cache_status = "cached" if was_cached else "newly processed"
+        if progress_callback:
+            progress_callback(0.6, desc=f"Generating audio ({cache_status} prompt)...")
+
+        # Load model and generate
+        lux_model = self.get_luxtts()
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning, message=".*torch.cuda.amp.autocast.*")
+            wav_tensor = lux_model.generate_speech(
+                text.strip(),
+                encoded_prompt,
+                num_steps=int(num_steps),
+                guidance_scale=float(guidance_scale),
+                t_shift=float(t_shift),
+                speed=float(speed),
+                return_smooth=bool(return_smooth),
+            )
+
+        # Convert to numpy
+        if isinstance(wav_tensor, torch.Tensor):
+            audio_data = wav_tensor.detach().cpu().to(torch.float32).numpy().squeeze()
+        else:
+            audio_data = np.array(wav_tensor).squeeze()
+
+        return audio_data, 48000, was_cached
 
 
 # Global singleton instance

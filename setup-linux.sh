@@ -13,8 +13,21 @@ echo ""
 PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
 echo "Detected Python version: $PYTHON_VERSION"
 echo ""
-echo "ℹ️  Note: openai-whisper is not installed on Linux (compatibility issues)"
+echo "Note: openai-whisper is not installed on Linux (compatibility issues)"
 echo "   VibeVoice ASR will be used for transcription instead"
+echo ""
+
+# Ask all questions upfront so installation can run unattended
+echo "========================================="
+echo "Optional: Install LuxTTS voice cloning engine?"
+echo "LuxTTS provides fast, high-quality voice cloning at 48kHz."
+echo "Requires ~1GB disk space for model files."
+echo "========================================="
+echo ""
+read -t 30 -p "Install LuxTTS? (y/N, default N in 30s): " INSTALL_LUXTTS
+INSTALL_LUXTTS=${INSTALL_LUXTTS:-N}
+echo ""
+echo "All questions answered - installing now..."
 echo ""
 
 # Install system dependencies (Ubuntu/Debian)
@@ -66,6 +79,32 @@ if python3 -c "import onnxruntime" 2>/dev/null; then
 else
     echo "⚠️  ONNX Runtime import failed. Trying nightly build..."
     pip install --pre --index-url https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/ORT-Nightly/pypi/simple/ onnxruntime
+fi
+
+# Optional modules
+echo ""
+echo "Installing optional modules..."
+if [[ "$INSTALL_LUXTTS" =~ ^[Yy]$ ]]; then
+    echo ""
+    echo "Installing LuxTTS prerequisites..."
+    echo "[Step 1/3] Installing LinaCodec..."
+    if pip install git+https://github.com/ysharma3501/LinaCodec.git; then
+        echo "[Step 2/3] Installing piper-phonemize..."
+        if pip install piper-phonemize --find-links https://k2-fsa.github.io/icefall/piper_phonemize.html; then
+            echo "[Step 3/3] Installing zipvoice (LuxTTS)..."
+            if pip install "zipvoice @ git+https://github.com/ysharma3501/LuxTTS.git"; then
+                echo "LuxTTS installed successfully!"
+            else
+                echo "zipvoice installation failed. LuxTTS will not be available."
+            fi
+        else
+            echo "piper-phonemize installation failed. LuxTTS will not be available."
+        fi
+    else
+        echo "LinaCodec installation failed. LuxTTS will not be available."
+    fi
+else
+    echo "Skipping LuxTTS installation."
 fi
 
 echo ""

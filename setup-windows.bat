@@ -12,6 +12,21 @@ choice /C 123 /T 10 /D 1 /M "Enter choice"
 set CUDA_CHOICE=%errorlevel%
 echo.
 
+echo ========================================
+echo Optional: Install LuxTTS voice cloning engine?
+echo LuxTTS provides fast, high-quality voice cloning at 48kHz.
+echo Requires ~1GB disk space for model files.
+echo ========================================
+echo.
+echo   1. Yes - Install LuxTTS support
+echo   2. No  - Skip (DEFAULT)
+echo.
+choice /C 12 /T 15 /D 2 /M "Install LuxTTS?"
+set LUXTTS_CHOICE=%errorlevel%
+echo.
+echo All questions answered - installing now...
+echo.
+
 REM Check Python version
 echo [1/6] Checking Python installation...
 python --version
@@ -102,13 +117,43 @@ endlocal
 echo.
 
 REM Install requirements
-echo [6/6] Installing requirements...
+echo [6/7] Installing requirements...
 pip install -r requirements.txt
 if %errorlevel% neq 0 (
     echo ERROR: Failed to install requirements!
     pause
     exit /b 1
 )
+echo.
+
+REM Optional modules
+echo [7/7] Optional modules...
+if %LUXTTS_CHOICE%==1 (
+    echo.
+    echo Installing LuxTTS prerequisites...
+    echo [Step 1/3] Installing LinaCodec...
+    pip install git+https://github.com/ysharma3501/LinaCodec.git
+    if %errorlevel% neq 0 (
+        echo WARNING: LinaCodec installation failed. LuxTTS will not be available.
+        goto :skip_luxtts
+    )
+    echo [Step 2/3] Installing piper-phonemize...
+    pip install piper-phonemize --find-links https://k2-fsa.github.io/icefall/piper_phonemize.html
+    if %errorlevel% neq 0 (
+        echo WARNING: piper-phonemize installation failed. LuxTTS will not be available.
+        goto :skip_luxtts
+    )
+    echo [Step 3/3] Installing zipvoice (LuxTTS)...
+    pip install "zipvoice @ git+https://github.com/ysharma3501/LuxTTS.git"
+    if %errorlevel% neq 0 (
+        echo WARNING: zipvoice installation failed. LuxTTS will not be available.
+        goto :skip_luxtts
+    )
+    echo LuxTTS installed successfully!
+) else (
+    echo Skipping LuxTTS installation.
+)
+:skip_luxtts
 echo.
 
 echo ========================================

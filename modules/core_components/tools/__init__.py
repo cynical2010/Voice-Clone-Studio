@@ -529,12 +529,17 @@ def load_sample_details(sample_name):
             else:
                 cache_status = "Qwen Cache: 📦 Not cached"
 
+            # Check LuxTTS cache status
+            SAMPLES_DIR = get_configured_dir("samples_folder", "samples")
+            luxtts_cached = (SAMPLES_DIR / f"{sample_name}_luxtts.pt").exists()
+            lux_status = "LuxTTS: ⚡ Cached" if luxtts_cached else "LuxTTS: 📦 Not cached"
+
             try:
                 audio_data, sr = sf.read(s["wav_path"])
                 duration = len(audio_data) / sr
-                info = f"**Info**\n\nDuration: {duration:.2f}s | {cache_status}"
+                info = f"**Info**\n\nDuration: {duration:.2f}s | {cache_status} | {lux_status}"
             except:
-                info = f"**Info**\n\n{cache_status}"
+                info = f"**Info**\n\n{cache_status} | {lux_status}"
 
             # Add design instructions if this was a Voice Design sample
             meta = s.get("meta", {})
@@ -648,6 +653,7 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
     from modules.core_components.ui_components import (
         create_qwen_advanced_params,
         create_vibevoice_advanced_params,
+        create_luxtts_advanced_params,
         create_emotion_intensity_slider,
         create_pause_controls
     )
@@ -749,12 +755,14 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
         'MODEL_SIZES_VIBEVOICE': constants.get('MODEL_SIZES_VIBEVOICE'),
         'VOICE_CLONE_OPTIONS': constants.get('VOICE_CLONE_OPTIONS'),
         'DEFAULT_VOICE_CLONE_MODEL': constants.get('DEFAULT_VOICE_CLONE_MODEL'),
+        'TTS_ENGINES': constants.get('TTS_ENGINES', {}),
         'WHISPER_AVAILABLE': WHISPER_AVAILABLE,
         'DEEPFILTER_AVAILABLE': DEEPFILTER_AVAILABLE,
 
         # UI component creators
         'create_qwen_advanced_params': create_qwen_advanced_params,
         'create_vibevoice_advanced_params': create_vibevoice_advanced_params,
+        'create_luxtts_advanced_params': create_luxtts_advanced_params,
         'create_emotion_intensity_slider': create_emotion_intensity_slider,
         'create_pause_controls': create_pause_controls,
 
@@ -871,7 +879,8 @@ def run_tool_standalone(ToolClass, port=7860, title="Tool - Standalone", extra_s
         MODEL_SIZES_BASE,
         MODEL_SIZES_VIBEVOICE,
         VOICE_CLONE_OPTIONS,
-        DEFAULT_VOICE_CLONE_MODEL
+        DEFAULT_VOICE_CLONE_MODEL,
+        TTS_ENGINES
     )
 
     # Find project root
@@ -926,7 +935,8 @@ def run_tool_standalone(ToolClass, port=7860, title="Tool - Standalone", extra_s
                 'MODEL_SIZES_BASE': MODEL_SIZES_BASE,
                 'MODEL_SIZES_VIBEVOICE': MODEL_SIZES_VIBEVOICE,
                 'VOICE_CLONE_OPTIONS': VOICE_CLONE_OPTIONS,
-                'DEFAULT_VOICE_CLONE_MODEL': DEFAULT_VOICE_CLONE_MODEL
+                'DEFAULT_VOICE_CLONE_MODEL': DEFAULT_VOICE_CLONE_MODEL,
+                'TTS_ENGINES': TTS_ENGINES,
             },
             confirm_trigger=confirm_trigger,
             input_trigger=input_trigger

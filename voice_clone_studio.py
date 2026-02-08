@@ -105,6 +105,7 @@ from modules.core_components.constants import (
     MODEL_SIZES_VIBEVOICE,
     VOICE_CLONE_OPTIONS,
     DEFAULT_VOICE_CLONE_MODEL,
+    TTS_ENGINES,
     LANGUAGES,
     CUSTOM_VOICE_SPEAKERS,
     SUPPORTED_MODELS,
@@ -149,7 +150,7 @@ def create_ui():
             with gr.Column(scale=20):
                 gr.Markdown("""
                     # 🎙️ Voice Clone Studio
-                    <p style="font-size: 0.9em; color: #ffffff; margin-top: -10px;">Powered by Qwen3-TTS, VibeVoice and Whisper</p>
+                    <p style="font-size: 0.9em; color: #ffffff; margin-top: -10px;">Powered by Qwen3-TTS, VibeVoice, LuxTTS and Whisper</p>
                     """)
 
             with gr.Column(scale=1, min_width=180):
@@ -176,6 +177,7 @@ def create_ui():
                 'MODEL_SIZES_VIBEVOICE': MODEL_SIZES_VIBEVOICE,
                 'VOICE_CLONE_OPTIONS': VOICE_CLONE_OPTIONS,
                 'DEFAULT_VOICE_CLONE_MODEL': DEFAULT_VOICE_CLONE_MODEL,
+                'TTS_ENGINES': TTS_ENGINES,
                 'LANGUAGES': LANGUAGES,
                 'CUSTOM_VOICE_SPEAKERS': CUSTOM_VOICE_SPEAKERS,
             },

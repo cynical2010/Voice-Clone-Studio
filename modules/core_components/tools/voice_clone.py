@@ -48,9 +48,26 @@ class VoiceCloneTool(Tool):
         get_prompt_cache_path = shared_state['get_prompt_cache_path']
         LANGUAGES = shared_state['LANGUAGES']
         VOICE_CLONE_OPTIONS = shared_state['VOICE_CLONE_OPTIONS']
-        DEFAULT_VOICE_CLONE_MODEL = shared_state['DEFAULT_VOICE_CLONE_MODEL']
+        TTS_ENGINES = shared_state.get('TTS_ENGINES', {})
         _user_config = shared_state['_user_config']
         _active_emotions = shared_state['_active_emotions']
+
+        # Filter voice clone options based on enabled engines
+        engine_settings = _user_config.get("enabled_engines", {})
+        visible_options = []
+        for engine_key, engine_info in TTS_ENGINES.items():
+            if engine_settings.get(engine_key, engine_info.get("default_enabled", True)):
+                visible_options.extend(engine_info["choices"])
+        # Fall back to all options if nothing is enabled (safety)
+        if not visible_options:
+            visible_options = VOICE_CLONE_OPTIONS
+
+        # Resolve default model based on which engines are enabled
+        from modules.core_components.constants import get_default_voice_clone_model
+        default_model = get_default_voice_clone_model(_user_config)
+        saved_model = _user_config.get("voice_clone_model", default_model)
+        if saved_model not in visible_options:
+            saved_model = visible_options[0]
         show_input_modal_js = shared_state['show_input_modal_js']
         show_confirmation_modal_js = shared_state['show_confirmation_modal_js']
         save_emotion_handler = shared_state['save_emotion_handler']
@@ -97,7 +114,7 @@ class VoiceCloneTool(Tool):
                     components['sample_info'] = gr.Textbox(
                         label="Info",
                         interactive=False,
-                        max_lines=3,
+                        max_lines=10,
                         value=None
                     )
 
@@ -111,21 +128,11 @@ class VoiceCloneTool(Tool):
                         lines=6
                     )
 
-                    # Language dropdown (hidden for VibeVoice models)
-                    is_qwen_initial = "Qwen" in _user_config.get("voice_clone_model", DEFAULT_VOICE_CLONE_MODEL)
-                    components['language_row'] = gr.Row(visible=is_qwen_initial)
-                    with components['language_row']:
-                        components['language_dropdown'] = gr.Dropdown(
-                            choices=LANGUAGES,
-                            value=_user_config.get("language", "Auto"),
-                            label="Language",
-                        )
-
                     with gr.Row():
                         components['clone_model_dropdown'] = gr.Dropdown(
-                            choices=VOICE_CLONE_OPTIONS,
-                            value=_user_config.get("voice_clone_model", DEFAULT_VOICE_CLONE_MODEL),
-                            label="Engine & Model (Qwen3 or VibeVoice)",
+                            choices=visible_options,
+                            value=saved_model,
+                            label="Engine & Model (Qwen3, VibeVoice, or LuxTTS)",
                             scale=4
                         )
                         components['seed_input'] = gr.Number(
@@ -135,8 +142,19 @@ class VoiceCloneTool(Tool):
                             scale=1
                         )
 
+                    # Determine which model is initially selected to conditionally show/hide parameters
+                    is_qwen_initial = "Qwen" in saved_model
+
+                    # Language dropdown (hidden for VibeVoice models)
+                    components['language_row'] = gr.Row(visible=is_qwen_initial)
+                    with components['language_row']:
+                        components['language_dropdown'] = gr.Dropdown(
+                            choices=LANGUAGES,
+                            value=_user_config.get("language", "Auto"),
+                            label="Language",
+                        )
+
                     # Qwen3 Advanced Parameters (create_qwen_advanced_params includes its own accordion)
-                    is_qwen_initial = "Qwen" in _user_config.get("voice_clone_model", DEFAULT_VOICE_CLONE_MODEL)
                     create_qwen_advanced_params = shared_state['create_qwen_advanced_params']
 
                     qwen_params = create_qwen_advanced_params(
@@ -167,7 +185,8 @@ class VoiceCloneTool(Tool):
                     components['qwen_max_new_tokens'] = qwen_params['max_new_tokens']
 
                     # VibeVoice Advanced Parameters
-                    components['vv_params_accordion'] = gr.Accordion("VibeVoice Advanced Parameters", open=False, visible=not is_qwen_initial)
+                    is_vv_initial = "VibeVoice" in saved_model
+                    components['vv_params_accordion'] = gr.Accordion("VibeVoice Advanced Parameters", open=False, visible=is_vv_initial)
                     with components['vv_params_accordion']:
 
                         with gr.Row():
@@ -232,6 +251,19 @@ class VoiceCloneTool(Tool):
                                 info="Cumulative probability threshold"
                             )
 
+                    # LuxTTS Advanced Parameters
+                    is_lux_initial = "LuxTTS" in saved_model
+                    create_luxtts_advanced_params = shared_state['create_luxtts_advanced_params']
+                    luxtts_params = create_luxtts_advanced_params(visible=is_lux_initial)
+                    components['luxtts_params_accordion'] = luxtts_params.get('accordion')
+                    components['luxtts_num_steps'] = luxtts_params['num_steps']
+                    components['luxtts_t_shift'] = luxtts_params['t_shift']
+                    components['luxtts_speed'] = luxtts_params['speed']
+                    components['luxtts_return_smooth'] = luxtts_params['return_smooth']
+                    components['luxtts_rms'] = luxtts_params['rms']
+                    components['luxtts_ref_duration'] = luxtts_params['ref_duration']
+                    components['luxtts_guidance_scale'] = luxtts_params['guidance_scale']
+
                     components['generate_btn'] = gr.Button("Generate Audio", variant="primary", size="lg")
 
                     components['output_audio'] = gr.Audio(
@@ -281,16 +313,22 @@ class VoiceCloneTool(Tool):
                                    qwen_do_sample=True, qwen_temperature=0.9, qwen_top_k=50, qwen_top_p=1.0, qwen_repetition_penalty=1.05,
                                    qwen_max_new_tokens=2048,
                                    vv_do_sample=False, vv_temperature=1.0, vv_top_k=50, vv_top_p=1.0, vv_repetition_penalty=1.0,
-                                   vv_cfg_scale=3.0, vv_num_steps=20, progress=gr.Progress()):
-            """Generate audio using voice cloning - supports both Qwen and VibeVoice engines."""
+                                   vv_cfg_scale=3.0, vv_num_steps=20,
+                                   lux_num_steps=4, lux_t_shift=0.5, lux_speed=1.0, lux_return_smooth=False,
+                                   lux_rms=0.01, lux_ref_duration=30, lux_guidance_scale=3.0,
+                                   progress=gr.Progress()):
+            """Generate audio using voice cloning - supports Qwen, VibeVoice, and LuxTTS engines."""
             if not sample_name:
-                return None, "❌ Please select a voice sample first."
+                return None, "Please select a voice sample first."
 
             if not text_to_generate or not text_to_generate.strip():
-                return None, "❌ Please enter text to generate."
+                return None, "Please enter text to generate."
 
             # Parse model selection to determine engine and size
-            if "VibeVoice" in model_selection:
+            if "LuxTTS" in model_selection:
+                engine = "luxtts"
+                model_size = "Default"
+            elif "VibeVoice" in model_selection:
                 engine = "vibevoice"
                 if "Small" in model_selection:
                     model_size = "1.5B"
@@ -363,7 +401,7 @@ class VoiceCloneTool(Tool):
 
                     engine_display = f"Qwen3-{model_size}"
 
-                else:  # vibevoice engine
+                elif engine == "vibevoice":
                     progress(0.1, desc=f"Loading VibeVoice model ({model_size})...")
 
                     # Generate using manager method
@@ -385,6 +423,29 @@ class VoiceCloneTool(Tool):
 
                     engine_display = f"VibeVoice-{model_size}"
                     cache_status = "no caching (VibeVoice)"
+
+                elif engine == "luxtts":
+                    progress(0.05, desc="Loading LuxTTS model...")
+
+                    # Generate using manager method (with prompt caching)
+                    audio_data, sr, was_cached = tts_manager.generate_voice_clone_luxtts(
+                        text=text_to_generate,
+                        voice_sample_path=sample["wav_path"],
+                        sample_name=sample_name,
+                        num_steps=int(lux_num_steps),
+                        t_shift=float(lux_t_shift),
+                        speed=float(lux_speed),
+                        return_smooth=bool(lux_return_smooth),
+                        rms=float(lux_rms),
+                        ref_duration=int(lux_ref_duration),
+                        guidance_scale=float(lux_guidance_scale),
+                        seed=seed,
+                        progress_callback=progress,
+                    )
+                    wavs = [audio_data]
+
+                    engine_display = "LuxTTS"
+                    cache_status = "cached" if was_cached else "newly processed"
 
                 progress(0.8, desc="Saving audio...")
                 # Generate unique filename
@@ -535,7 +596,10 @@ class VoiceCloneTool(Tool):
                     components['qwen_do_sample'], components['qwen_temperature'], components['qwen_top_k'], components['qwen_top_p'], components['qwen_repetition_penalty'],
                     components['qwen_max_new_tokens'],
                     components['vv_do_sample'], components['vv_temperature'], components['vv_top_k'], components['vv_top_p'], components['vv_repetition_penalty'],
-                    components['vv_cfg_scale'], components['vv_num_steps']],
+                    components['vv_cfg_scale'], components['vv_num_steps'],
+                    components['luxtts_num_steps'], components['luxtts_t_shift'], components['luxtts_speed'], components['luxtts_return_smooth'],
+                    components['luxtts_rms'], components['luxtts_ref_duration'], components['luxtts_guidance_scale']],
+
             outputs=[components['output_audio'], components['clone_status']]
         )
 
@@ -550,15 +614,17 @@ class VoiceCloneTool(Tool):
             outputs=[components['language_row']]
         )
 
-        # Toggle accordion visibility based on engine
+        # Toggle accordion visibility based on engine (Qwen / VibeVoice / LuxTTS)
         def toggle_engine_params(model_selection):
             is_qwen = "Qwen" in model_selection
-            return gr.update(visible=is_qwen), gr.update(visible=not is_qwen)
+            is_vv = "VibeVoice" in model_selection
+            is_lux = "LuxTTS" in model_selection
+            return gr.update(visible=is_qwen), gr.update(visible=is_vv), gr.update(visible=is_lux)
 
         components['clone_model_dropdown'].change(
             toggle_engine_params,
             inputs=[components['clone_model_dropdown']],
-            outputs=[components['qwen_params_accordion'], components['vv_params_accordion']]
+            outputs=[components['qwen_params_accordion'], components['vv_params_accordion'], components['luxtts_params_accordion']]
         )
 
         # Save voice clone model selection

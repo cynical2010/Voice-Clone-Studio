@@ -55,11 +55,51 @@ VOICE_CLONE_OPTIONS = [
     "Qwen3 - Large",
     "VibeVoice - Small",
     "VibeVoice - Large (4-bit)",
-    "VibeVoice - Large"
+    "VibeVoice - Large",
+    "LuxTTS - Default"
 ]
 
-# Default to Large models for better quality
+# Default to Large models for better quality (static fallback)
 DEFAULT_VOICE_CLONE_MODEL = "Qwen3 - Large"
+
+# TTS Engines - master list of engines and which dropdown entries belong to each
+# Format: engine_key -> { label, choices (subset of VOICE_CLONE_OPTIONS), default_enabled }
+TTS_ENGINES = {
+    "Qwen3": {
+        "label": "Qwen3-TTS",
+        "choices": ["Qwen3 - Small", "Qwen3 - Large"],
+        "default_enabled": True,
+    },
+    "VibeVoice": {
+        "label": "VibeVoice",
+        "choices": ["VibeVoice - Small", "VibeVoice - Large (4-bit)", "VibeVoice - Large"],
+        "default_enabled": True,
+    },
+    "LuxTTS": {
+        "label": "LuxTTS",
+        "choices": ["LuxTTS - Default"],
+        "default_enabled": True,
+    },
+}
+
+
+def get_default_voice_clone_model(user_config=None):
+    """Get the preferred default voice clone model, respecting engine visibility.
+
+    Returns the largest model from the first enabled engine, falling back
+    to DEFAULT_VOICE_CLONE_MODEL if no config is provided.
+    """
+    if user_config is None:
+        return DEFAULT_VOICE_CLONE_MODEL
+
+    engine_settings = user_config.get("enabled_engines", {})
+    for engine_key, engine_info in TTS_ENGINES.items():
+        if engine_settings.get(engine_key, engine_info.get("default_enabled", True)):
+            # Return the last (largest) model from first enabled engine
+            return engine_info["choices"][-1]
+
+    # All engines disabled — return first option as absolute fallback
+    return VOICE_CLONE_OPTIONS[0]
 
 # ============================================================================
 # LANGUAGES
@@ -113,6 +153,8 @@ SUPPORTED_MODELS = {
     "vibevoice-tts-1.5b",
     "vibevoice-tts-4b",
     "vibevoice-asr",
+    # LuxTTS models
+    "luxtts",
     # Whisper models
     "whisper"
 }
@@ -180,12 +222,26 @@ VIBEVOICE_GENERATION_DEFAULTS = {
     "num_steps": 20
 }
 
+# LuxTTS Generation Defaults
+LUXTTS_GENERATION_DEFAULTS = {
+    "num_steps": 4,
+    "t_shift": 0.9,
+    "speed": 1.0,
+    "return_smooth": False,
+    "rms": 0.01,
+    "ref_duration": 5,
+    "cpu_threads": 2
+}
+
+# LuxTTS audio is 48kHz (higher quality than standard 24kHz)
+LUXTTS_SAMPLE_RATE = 48000
+
 # ============================================================================
 # UI/UX CONSTANTS
 # ============================================================================
 
 APP_TITLE = "Voice Clone Studio"
-APP_SUBTITLE = "Powered by Qwen3-TTS, VibeVoice and Whisper"
+APP_SUBTITLE = "Powered by Qwen3-TTS, VibeVoice, LuxTTS and Whisper"
 
 # Port assignments for standalone tool testing
 TOOL_PORTS = {
