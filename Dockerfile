@@ -73,9 +73,17 @@ RUN pip install --no-cache-dir \
     markdown==3.10.1 \
     einops
 
+COPY ./wheel /home/user/app/wheel
 COPY ./requirements.txt /home/user/app/requirements.txt
+WORKDIR /home/user/app
 RUN pip install --no-cache-dir -r /home/user/app/requirements.txt
-RUN rustup self uninstall -y    
+
+# LuxTTS voice cloning engine
+RUN pip install --no-cache-dir git+https://github.com/ysharma3501/LinaCodec.git && \
+    pip install --no-cache-dir piper-phonemize --find-links https://k2-fsa.github.io/icefall/piper_phonemize.html && \
+    pip install --no-cache-dir "zipvoice @ git+https://github.com/ysharma3501/LuxTTS.git"
+
+RUN rustup self uninstall -y
 
 
 FROM base-runtime AS runtime
@@ -93,8 +101,10 @@ ENV PATH="/home/user/app/venv/bin:$PATH" \
 
 COPY --chown=1001:1001 --from=builder /home/user/app/venv /home/user/app/venv
 COPY ./modules /home/user/app/modules
-COPY ./docs /home/user/app/docs
+COPY ./wheel /home/user/app/wheel
 COPY ./tests /home/user/app/tests
+COPY ./docs /home/user/app/docs
+COPY ./config.json /home/user/app/config.json
 COPY ./voice_clone_studio.py /home/user/app/voice_clone_studio.py
 WORKDIR /home/user/app
 EXPOSE 7860

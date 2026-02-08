@@ -14,9 +14,16 @@ onnxruntime-gpu
 
 # Web UI and utilities
 gradio
+gradio_filelister @ file:wheel/gradio_filelister-0.4.0-py3-none-any.whl
 numpy
 diffusers
 markdown
+
+# LuxTTS voice cloning (optional - install via setup script or manually)
+# Prerequisites (install in order before zipvoice):
+#   pip install git+https://github.com/ysharma3501/LinaCodec.git
+#   pip install piper-phonemize --find-links https://k2-fsa.github.io/icefall/piper_phonemize.html
+#   pip install "zipvoice @ git+https://github.com/ysharma3501/LuxTTS.git"
 
 # 4-bit quantization support (all platforms)
 bitsandbytes
