@@ -116,10 +116,12 @@ Unified audio preparation workspace for both voice samples and training datasets
 - **Normalize** - Balance audio levels
 - **Convert to Mono** - Ensure single-channel audio
 - **Denoise** - Clean audio with DeepFilterNet
-- **Transcribe** - Whisper or VibeVoice ASR automatic transcription
+- **Extract from Video** - Automatically extract audio tracks from video files
+- **Auto-Split Audio** - Split long recordings into sentence-level clips using Qwen3-ASR-detected boundaries
+- **Transcribe** - Qwen3 ASR, Whisper, or VibeVoice ASR automatic transcription
 - **Batch Transcribe** - Process entire folders of audio files at once
 - **Save as Sample** - One-click sample creation
-- **Dataset Management** - Organize and prepare training data
+- **Dataset Management** - Create, delete, and organize dataset folders directly from the UI
 
 ### Output History
 View, play back, and manage your previously generated audio files. Multi-select for batch deletion, double-click to play.

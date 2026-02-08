@@ -6,6 +6,7 @@ Train custom voice models using finetuning datasets.
 
 import gradio as gr
 from textwrap import dedent
+from gradio_filelister import FileLister
 from modules.core_components.tool_base import Tool, ToolConfig
 
 
@@ -45,17 +46,18 @@ class TrainModelTool(Tool):
 
                     components['refresh_train_folder_btn'] = gr.Button("Refresh Datasets", size="sm")
 
-                    components['ref_audio_dropdown'] = gr.Dropdown(
-                        choices=[],
-                        label="Select Reference Audio Track",
-                        info="Select one sample from your dataset as reference",
-                        interactive=True
+                    components['ref_audio_lister'] = FileLister(
+                        value=[],
+                        height=150,
+                        show_footer=False,
+                        interactive=True,
                     )
 
                     components['ref_audio_preview'] = gr.Audio(
                         label="Preview",
                         type="filepath",
-                        interactive=False
+                        interactive=False,
+                        elem_id="train-ref-audio-preview"
                     )
 
                     components['start_training_btn'] = gr.Button("Start Training", variant="primary", size="lg")
@@ -133,16 +135,25 @@ class TrainModelTool(Tool):
         show_input_modal_js = shared_state['show_input_modal_js']
         DATASETS_DIR = shared_state['DATASETS_DIR']
 
-        # --- Folder change: update ref audio dropdown ---
-        def update_ref_audio_dropdown(folder):
-            """Update reference audio dropdown when folder changes."""
+        def get_selected_ref_filename(lister_value):
+            """Extract selected filename from FileLister value."""
+            if not lister_value:
+                return None
+            selected = lister_value.get("selected", [])
+            if len(selected) == 1:
+                return selected[0]
+            return None
+
+        # --- Folder change: update ref audio lister ---
+        def update_ref_audio_lister(folder):
+            """Update reference audio lister when folder changes."""
             files = get_dataset_files(folder)
-            return gr.update(choices=files, value=None), None
+            return files, None
 
         components['train_folder_dropdown'].change(
-            update_ref_audio_dropdown,
+            update_ref_audio_lister,
             inputs=[components['train_folder_dropdown']],
-            outputs=[components['ref_audio_dropdown'], components['ref_audio_preview']]
+            outputs=[components['ref_audio_lister'], components['ref_audio_preview']]
         )
 
         # --- Refresh folders ---
@@ -151,9 +162,10 @@ class TrainModelTool(Tool):
             outputs=[components['train_folder_dropdown']]
         )
 
-        # --- Ref audio preview ---
-        def load_ref_audio_preview(folder, filename):
-            """Load reference audio preview."""
+        # --- Ref audio preview on selection ---
+        def load_ref_audio_preview(lister_value, folder):
+            """Load reference audio preview from FileLister selection."""
+            filename = get_selected_ref_filename(lister_value)
             if not folder or not filename or folder in ("(No folders)", "(Select Dataset)"):
                 return None
             audio_path = DATASETS_DIR / folder / filename
@@ -161,10 +173,16 @@ class TrainModelTool(Tool):
                 return str(audio_path)
             return None
 
-        components['ref_audio_dropdown'].change(
+        components['ref_audio_lister'].change(
             load_ref_audio_preview,
-            inputs=[components['train_folder_dropdown'], components['ref_audio_dropdown']],
+            inputs=[components['ref_audio_lister'], components['train_folder_dropdown']],
             outputs=[components['ref_audio_preview']]
+        )
+
+        # Double-click = play preview
+        components['ref_audio_lister'].double_click(
+            fn=None,
+            js="() => { setTimeout(() => { const btn = document.querySelector('#train-ref-audio-preview .play-pause-button'); if (btn) btn.click(); }, 150); }"
         )
 
         # --- Start Training: 2-step modal with dynamic validation ---
@@ -215,10 +233,12 @@ class TrainModelTool(Tool):
         )
 
         # --- Handle training modal submission ---
-        def handle_train_model_input(input_value, folder, ref_audio, batch_size, lr, epochs, save_interval, progress=gr.Progress()):
+        def handle_train_model_input(input_value, folder, ref_lister, batch_size, lr, epochs, save_interval, progress=gr.Progress()):
             """Process input modal submission for training."""
             if not input_value or not input_value.startswith("train_model_"):
                 return gr.update()
+
+            ref_audio = get_selected_ref_filename(ref_lister)
 
             # Format: "train_model_SpeakerName_timestamp"
             parts = input_value.split("_")
@@ -230,7 +250,7 @@ class TrainModelTool(Tool):
 
         input_trigger.change(
             handle_train_model_input,
-            inputs=[input_trigger, components['train_folder_dropdown'], components['ref_audio_dropdown'],
+            inputs=[input_trigger, components['train_folder_dropdown'], components['ref_audio_lister'],
                     components['batch_size_slider'], components['learning_rate_slider'],
                     components['num_epochs_slider'], components['save_interval_slider']],
             outputs=[components['training_status']]

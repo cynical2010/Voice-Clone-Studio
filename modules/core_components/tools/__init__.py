@@ -290,7 +290,7 @@ def load_config():
         "models_folder": "models",
         "trained_models_folder": "models",
         "emotions": None,
-        "conv_model_type": "Qwen CustomVoice",
+        "conv_model_type": "Qwen Speakers",
         "conv_model_size": "Large",
         "conv_base_model_size": "Large",
         "vibevoice_model_size": "Small",
@@ -685,6 +685,12 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
     except ImportError:
         WHISPER_AVAILABLE = False
 
+    try:
+        from qwen_asr import Qwen3ASRModel
+        QWEN3_ASR_AVAILABLE = True
+    except ImportError:
+        QWEN3_ASR_AVAILABLE = False
+
     # DeepFilterNet / Torchaudio Compatibility Shim
     try:
         from modules.deepfilternet import deepfilternet_torchaudio_patch
@@ -731,7 +737,22 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
             return get_deepfilter_lazy._model_cache
 
         # Use the real clean_audio function with lazy model loader
-        return clean_audio_util(audio_file, directories.get('TEMP_DIR'), get_deepfilter_lazy, progress)
+        result = clean_audio_util(audio_file, directories.get('TEMP_DIR'), get_deepfilter_lazy, progress)
+
+        # Unload DeepFilterNet model from memory after use
+        if hasattr(get_deepfilter_lazy, '_model_cache'):
+            del get_deepfilter_lazy._model_cache
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except ImportError:
+                pass
+            import gc
+            gc.collect()
+            print("DeepFilterNet model unloaded")
+
+        return result
 
     shared_state = {
         # Config & Emotions
@@ -753,10 +774,15 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
         'MODEL_SIZES_CUSTOM': constants.get('MODEL_SIZES_CUSTOM'),
         'MODEL_SIZES_DESIGN': constants.get('MODEL_SIZES_DESIGN'),
         'MODEL_SIZES_VIBEVOICE': constants.get('MODEL_SIZES_VIBEVOICE'),
+        'MODEL_SIZES_QWEN3_ASR': constants.get('MODEL_SIZES_QWEN3_ASR', ['Small', 'Large']),
         'VOICE_CLONE_OPTIONS': constants.get('VOICE_CLONE_OPTIONS'),
         'DEFAULT_VOICE_CLONE_MODEL': constants.get('DEFAULT_VOICE_CLONE_MODEL'),
         'TTS_ENGINES': constants.get('TTS_ENGINES', {}),
+        'ASR_ENGINES': constants.get('ASR_ENGINES', {}),
+        'ASR_OPTIONS': constants.get('ASR_OPTIONS', []),
+        'DEFAULT_ASR_MODEL': constants.get('DEFAULT_ASR_MODEL', 'Qwen3 ASR - Large'),
         'WHISPER_AVAILABLE': WHISPER_AVAILABLE,
+        'QWEN3_ASR_AVAILABLE': QWEN3_ASR_AVAILABLE,
         'DEEPFILTER_AVAILABLE': DEEPFILTER_AVAILABLE,
 
         # UI component creators
@@ -880,7 +906,10 @@ def run_tool_standalone(ToolClass, port=7860, title="Tool - Standalone", extra_s
         MODEL_SIZES_VIBEVOICE,
         VOICE_CLONE_OPTIONS,
         DEFAULT_VOICE_CLONE_MODEL,
-        TTS_ENGINES
+        TTS_ENGINES,
+        ASR_ENGINES,
+        ASR_OPTIONS,
+        DEFAULT_ASR_MODEL
     )
 
     # Find project root
@@ -937,6 +966,9 @@ def run_tool_standalone(ToolClass, port=7860, title="Tool - Standalone", extra_s
                 'VOICE_CLONE_OPTIONS': VOICE_CLONE_OPTIONS,
                 'DEFAULT_VOICE_CLONE_MODEL': DEFAULT_VOICE_CLONE_MODEL,
                 'TTS_ENGINES': TTS_ENGINES,
+                'ASR_ENGINES': ASR_ENGINES,
+                'ASR_OPTIONS': ASR_OPTIONS,
+                'DEFAULT_ASR_MODEL': DEFAULT_ASR_MODEL,
             },
             confirm_trigger=confirm_trigger,
             input_trigger=input_trigger

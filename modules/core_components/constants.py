@@ -48,6 +48,7 @@ MODEL_SIZES_BASE = ["Small", "Large"]  # Base model: Small=0.6B, Large=1.7B
 MODEL_SIZES_CUSTOM = ["Small", "Large"]  # CustomVoice: Small=0.6B, Large=1.7B
 MODEL_SIZES_DESIGN = ["1.7B"]  # VoiceDesign only has 1.7B
 MODEL_SIZES_VIBEVOICE = ["Small", "Large (4-bit)", "Large"]  # VibeVoice: 1.5B, 7B-4bit, 7B
+MODEL_SIZES_QWEN3_ASR = ["Small", "Large"]  # Qwen3-ASR: 0.6B, 1.7B
 
 # Voice Clone engine and model options
 VOICE_CLONE_OPTIONS = [
@@ -69,18 +70,72 @@ TTS_ENGINES = {
         "label": "Qwen3-TTS",
         "choices": ["Qwen3 - Small", "Qwen3 - Large"],
         "default_enabled": True,
+        "import_check": ("qwen_tts", "Qwen3TTSModel"),
     },
     "VibeVoice": {
         "label": "VibeVoice",
         "choices": ["VibeVoice - Small", "VibeVoice - Large (4-bit)", "VibeVoice - Large"],
         "default_enabled": True,
+        "import_check": ("modules.vibevoice_tts.modular.modeling_vibevoice_inference", "VibeVoiceForConditionalGenerationInference"),
     },
     "LuxTTS": {
         "label": "LuxTTS",
         "choices": ["LuxTTS - Default"],
         "default_enabled": True,
+        "import_check": ("zipvoice.luxvoice", "LuxTTS"),
     },
 }
+
+# ASR Engines - transcription engine registry (matches TTS_ENGINES pattern)
+# Format: engine_key -> { label, choices, default_enabled, show_language }
+ASR_ENGINES = {
+    "Qwen3 ASR": {
+        "label": "Qwen3-ASR",
+        "choices": ["Qwen3 ASR - Small", "Qwen3 ASR - Large"],
+        "default_enabled": True,
+        "show_language": True,
+        "import_check": ("qwen_asr", "Qwen3ASRModel"),
+    },
+    "VibeVoice ASR": {
+        "label": "VibeVoice ASR",
+        "choices": ["VibeVoice ASR - Default"],
+        "default_enabled": True,
+        "show_language": False,
+        "import_check": ("modules.vibevoice_asr.modular.modeling_vibevoice_asr", "VibeVoiceASRForConditionalGeneration"),
+    },
+    "Whisper": {
+        "label": "Whisper",
+        "choices": ["Whisper - Medium", "Whisper - Large"],
+        "default_enabled": True,
+        "show_language": True,
+        "import_check": ("whisper", None),
+    },
+}
+
+# All ASR dropdown options (derived from ASR_ENGINES)
+ASR_OPTIONS = []
+for _engine_info in ASR_ENGINES.values():
+    ASR_OPTIONS.extend(_engine_info["choices"])
+
+DEFAULT_ASR_MODEL = "Qwen3 ASR - Large"
+
+
+def get_default_asr_model(user_config=None):
+    """Get the preferred default ASR model, respecting engine visibility.
+
+    Returns the last (largest) model from the first enabled ASR engine,
+    falling back to DEFAULT_ASR_MODEL if no config is provided.
+    """
+    if user_config is None:
+        return DEFAULT_ASR_MODEL
+
+    asr_settings = user_config.get("enabled_asr_engines", {})
+    for engine_key, engine_info in ASR_ENGINES.items():
+        if asr_settings.get(engine_key, engine_info.get("default_enabled", True)):
+            return engine_info["choices"][-1]
+
+    # All engines disabled — return first option as absolute fallback
+    return ASR_OPTIONS[0] if ASR_OPTIONS else DEFAULT_ASR_MODEL
 
 
 def get_default_voice_clone_model(user_config=None):
@@ -100,6 +155,124 @@ def get_default_voice_clone_model(user_config=None):
 
     # All engines disabled — return first option as absolute fallback
     return VOICE_CLONE_OPTIONS[0]
+
+
+def check_engine_availability(user_config, save_config_fn=None):
+    """Check which enabled engines are actually importable and auto-disable missing ones.
+
+    Only checks engines that are currently enabled. Already-disabled engines are skipped.
+    Updates user_config in-place and optionally saves to disk.
+
+    Returns dict with results: {engine_key: True/False} for all checked engines.
+    """
+    import importlib
+    import warnings
+    import logging
+    import io
+    import sys
+
+    results = {}
+
+    def _check_import(module_name, attr_name):
+        """Try importing a module and optionally an attribute.
+
+        Suppresses verbose warnings from libraries during import checks:
+        - LuxTTS: k2 'Failed import' root logger WARNING
+        - Qwen3-TTS: flash-attn 'not installed' print to stderr
+        """
+        # Suppress root logger warnings (catches k2 import warning from LuxTTS)
+        root_logger = logging.getLogger()
+        prev_level = root_logger.level
+        root_logger.setLevel(logging.ERROR)
+
+        # Capture stdout+stderr to suppress flash-attn print warnings from Qwen3
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        sys.stdout = io.StringIO()
+        sys.stderr = io.StringIO()
+
+        try:
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore")
+                mod = importlib.import_module(module_name)
+                if attr_name:
+                    getattr(mod, attr_name)
+                return True
+        except (ImportError, AttributeError):
+            return False
+        finally:
+            root_logger.setLevel(prev_level)
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+
+    # --- Check TTS engines ---
+    print("Checking TTS engines...")
+    engine_settings = user_config.get("enabled_engines", {})
+    tts_changed = False
+
+    for engine_key, engine_info in TTS_ENGINES.items():
+        is_enabled = engine_settings.get(engine_key, engine_info.get("default_enabled", True))
+        if not is_enabled:
+            print(f"  {engine_info['label']:20s} [SKIP] (disabled in settings)")
+            continue
+
+        check = engine_info.get("import_check")
+        if not check:
+            results[engine_key] = True
+            print(f"  {engine_info['label']:20s} [OK]")
+            continue
+
+        module_name, attr_name = check
+        available = _check_import(module_name, attr_name)
+        results[engine_key] = available
+
+        if available:
+            print(f"  {engine_info['label']:20s} [OK]")
+        else:
+            print(f"  {engine_info['label']:20s} [NOT FOUND] - auto-disabled")
+            if "enabled_engines" not in user_config:
+                user_config["enabled_engines"] = {}
+            user_config["enabled_engines"][engine_key] = False
+            tts_changed = True
+
+    # --- Check ASR engines ---
+    print("Checking ASR engines...")
+    asr_settings = user_config.get("enabled_asr_engines", {})
+    asr_changed = False
+
+    for engine_key, engine_info in ASR_ENGINES.items():
+        is_enabled = asr_settings.get(engine_key, engine_info.get("default_enabled", True))
+        if not is_enabled:
+            print(f"  {engine_info['label']:20s} [SKIP] (disabled in settings)")
+            continue
+
+        check = engine_info.get("import_check")
+        if not check:
+            results[engine_key] = True
+            print(f"  {engine_info['label']:20s} [OK]")
+            continue
+
+        module_name, attr_name = check
+        available = _check_import(module_name, attr_name)
+        results[engine_key] = available
+
+        if available:
+            print(f"  {engine_info['label']:20s} [OK]")
+        else:
+            print(f"  {engine_info['label']:20s} [NOT FOUND] - auto-disabled")
+            if "enabled_asr_engines" not in user_config:
+                user_config["enabled_asr_engines"] = {}
+            user_config["enabled_asr_engines"][engine_key] = False
+            asr_changed = True
+
+    # Save config if anything changed
+    if (tts_changed or asr_changed) and save_config_fn:
+        if tts_changed:
+            save_config_fn("enabled_engines", user_config["enabled_engines"])
+        if asr_changed:
+            save_config_fn("enabled_asr_engines", user_config["enabled_asr_engines"])
+
+    return results
 
 # ============================================================================
 # LANGUAGES

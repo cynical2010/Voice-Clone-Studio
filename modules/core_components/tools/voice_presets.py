@@ -17,6 +17,7 @@ import soundfile as sf
 from datetime import datetime
 from textwrap import dedent
 from pathlib import Path
+from gradio_filelister import FileLister
 
 from modules.core_components.tool_base import Tool, ToolConfig
 from modules.core_components.ai_models.tts_manager import get_tts_manager
@@ -29,7 +30,7 @@ class VoicePresetsTool(Tool):
     config = ToolConfig(
         name="Voice Presets",
         module_name="tool_voice_presets",
-        description="Generate with preset voices or trained models",
+        description="Generate with trained models or Qwen3's Style-Controlled Premium Speakers",
         enabled=True,
         category="generation"
     )
@@ -53,15 +54,19 @@ class VoicePresetsTool(Tool):
         delete_emotion_handler = shared_state['delete_emotion_handler']
         save_preference = shared_state['save_preference']
         format_help_html = shared_state['format_help_html']
+        get_sample_choices = shared_state['get_sample_choices']
+        get_dataset_folders = shared_state['get_dataset_folders']
+        get_dataset_files = shared_state['get_dataset_files']
+        DATASETS_DIR = shared_state['DATASETS_DIR']
         confirm_trigger = shared_state['confirm_trigger']
         input_trigger = shared_state['input_trigger']
 
         with gr.TabItem("Voice Presets") as voice_presets_tab:
             components['voice_presets_tab'] = voice_presets_tab
-            gr.Markdown("Use Qwen3-TTS pre-trained models or Custom Trained models with style control")
+            gr.Markdown("Use your Qwen3-TTS trained models or Qwen3's Speakers with style control")
 
-            initial_voice_type = _user_config.get("voice_type", "Premium Speakers")
-            is_premium = (initial_voice_type.strip() == "Premium Speakers")
+            initial_voice_type = _user_config.get("voice_type", "Trained Models")
+            is_premium = (initial_voice_type.strip() == "Qwen Speakers")
 
             with gr.Row():
                 # Left - Speaker selection
@@ -69,19 +74,19 @@ class VoicePresetsTool(Tool):
                     gr.Markdown("### Select Voice Type")
 
                     components['voice_type_radio'] = gr.Radio(
-                        choices=["Premium Speakers", "Trained Models"],
+                        choices=["Trained Models", "Qwen Speakers"],
                         value=initial_voice_type,
                         label="Voice Source"
                     )
 
-                    # Premium speakers dropdown
-                    components['premium_section'] = gr.Column(visible=is_premium)
-                    with components['premium_section']:
+                    # Qwen Speakers dropdown
+                    components['speaker_section'] = gr.Column(visible=is_premium)
+                    with components['speaker_section']:
                         speaker_choices = CUSTOM_VOICE_SPEAKERS
                         components['custom_speaker_dropdown'] = gr.Dropdown(
                             choices=speaker_choices,
                             label="Speaker",
-                            info="Choose a premium voice"
+                            info="Choose a Qwen speaker voice"
                         )
 
                         components['custom_model_size'] = gr.Dropdown(
@@ -93,7 +98,7 @@ class VoicePresetsTool(Tool):
                         )
 
                         premium_speaker_guide = dedent("""\
-                            **Premium Speakers:**
+                            **Qwen Speakers:**
 
                             | Speaker | Voice | Language |
                             |---------|-------|----------|
@@ -145,13 +150,46 @@ class VoicePresetsTool(Tool):
 
                         components['refresh_trained_btn'] = gr.Button("Refresh", size="sm")
 
+                        # ICL (In-Context Learning) mode for enhanced voice cloning
+                        components['icl_enabled'] = gr.Checkbox(
+                            label="Enable ICL (Experimental)",
+                            value=False,
+                            info="Use a voice sample for more expressive results"
+                        )
+
+                        components['icl_sample_section'] = gr.Column(visible=False)
+                        with components['icl_sample_section']:
+                            components['icl_dataset_dropdown'] = gr.Dropdown(
+                                choices=["(Select Dataset)"] + get_dataset_folders(),
+                                value="(Select Dataset)",
+                                label="Dataset",
+                                info="Select the dataset used for training",
+                                interactive=True
+                            )
+                            components['icl_refresh_datasets'] = gr.Button("Refresh Datasets", size="sm")
+                            components['icl_voice_lister'] = FileLister(
+                                value=[],
+                                height=150,
+                                show_footer=False,
+                                interactive=True,
+                            )
+
+                            components['icl_audio_preview'] = gr.Audio(
+                                label="Preview",
+                                type="filepath",
+                                interactive=False,
+                                elem_id="icl-audio-preview"
+                            )
+
                         trained_models_tip = dedent("""\
                         **Trained Models:**
 
                         Custom voices you've trained in the Train Model tab.
-                        Models are listed as:
-                        - "ModelName" for standalone models
-                        - "ModelName - Epoch N" for checkpoint-based models
+
+                        **ICL Mode (Enhanced Voice Clone):**
+                        Select a sample from your training dataset for more
+                        expressive results. The model uses both its training
+                        and the reference audio for better voice similarity.
 
                         *Tip: Later epochs are usually better trained*
                         """)
@@ -240,6 +278,10 @@ class VoicePresetsTool(Tool):
 
         # Get helper functions and directories
         get_trained_models = shared_state['get_trained_models']
+        get_sample_choices = shared_state['get_sample_choices']
+        get_dataset_folders = shared_state['get_dataset_folders']
+        get_dataset_files = shared_state['get_dataset_files']
+        DATASETS_DIR = shared_state['DATASETS_DIR']
         show_input_modal_js = shared_state['show_input_modal_js']
         show_confirmation_modal_js = shared_state['show_confirmation_modal_js']
         save_emotion_handler = shared_state['save_emotion_handler']
@@ -300,7 +342,7 @@ class VoicePresetsTool(Tool):
                     Language: {language}
                     Seed: {seed}
                     Instruct: {instruct.strip() if instruct else ''}
-                    Text: {text_to_generate.strip()}
+                    Text: {' '.join(text_to_generate.split())}
                     """)
                 metadata_file.write_text(metadata, encoding="utf-8")
 
@@ -311,17 +353,48 @@ class VoicePresetsTool(Tool):
                 return str(output_file), f"Audio saved to: {output_file.name}\nSpeaker: {speaker}{instruct_msg}\nSeed: {seed} | {model_size}"
 
             except Exception as e:
+                import traceback
+                traceback.print_exc()
                 return None, f"❌ Error generating audio: {str(e)}"
 
         def generate_with_trained_model_handler(text_to_generate, language, speaker_name, checkpoint_path, instruct, seed,
                                                 do_sample=True, temperature=0.9, top_k=50, top_p=1.0,
-                                                repetition_penalty=1.05, max_new_tokens=2048, progress=gr.Progress()):
+                                                repetition_penalty=1.05, max_new_tokens=2048,
+                                                icl_enabled=False, icl_dataset=None, icl_sample_name=None,
+                                                progress=gr.Progress()):
             """Generate audio using a trained custom voice model checkpoint."""
             if not text_to_generate or not text_to_generate.strip():
                 return None, "❌ Please enter text to generate."
 
+            # Resolve ICL voice sample from dataset if enabled
+            voice_sample_path = None
+            ref_text = None
+            if icl_enabled:
+                if not icl_dataset or icl_dataset in ["(Select Dataset)", ""]:
+                    return None, "❌ Please select a dataset for ICL mode."
+                if not icl_sample_name or icl_sample_name.strip() == "":
+                    return None, "❌ Please select a voice sample for ICL mode."
+
+                audio_path = DATASETS_DIR / icl_dataset / icl_sample_name
+                if not audio_path.exists():
+                    return None, f"❌ Audio file not found: {icl_sample_name}"
+
+                voice_sample_path = str(audio_path)
+
+                # Look for matching .txt transcript file
+                txt_path = audio_path.with_suffix(".txt")
+                if txt_path.exists():
+                    ref_text = txt_path.read_text(encoding="utf-8").strip()
+
+                if not ref_text or not ref_text.strip():
+                    return None, (
+                        f"❌ No transcript found for '{icl_sample_name}' in dataset '{icl_dataset}'.\n\n"
+                        "Make sure the sample has a matching .txt file with the transcript."
+                    )
+
             try:
-                progress(0.1, desc=f"Loading trained model from {checkpoint_path}...")
+                mode_desc = "ICL mode" if icl_enabled and voice_sample_path else "speaker embedding"
+                progress(0.1, desc=f"Loading trained model ({mode_desc})...")
 
                 # Call tts_manager method
                 audio_data, sr = tts_manager.generate_with_trained_model(
@@ -329,7 +402,7 @@ class VoicePresetsTool(Tool):
                     language=language,
                     speaker_name=speaker_name,
                     checkpoint_path=checkpoint_path,
-                    instruct=instruct,
+                    instruct=instruct if not icl_enabled else None,
                     seed=int(seed) if seed is not None else -1,
                     do_sample=do_sample,
                     temperature=temperature,
@@ -337,7 +410,10 @@ class VoicePresetsTool(Tool):
                     top_p=top_p,
                     repetition_penalty=repetition_penalty,
                     max_new_tokens=max_new_tokens,
-                    user_config=user_config
+                    user_config=user_config,
+                    icl_mode=icl_enabled and voice_sample_path is not None,
+                    voice_sample_path=voice_sample_path,
+                    ref_text=ref_text,
                 )
 
                 progress(0.8, desc="Saving audio...")
@@ -348,25 +424,32 @@ class VoicePresetsTool(Tool):
 
                 # Save metadata file
                 metadata_file = output_file.with_suffix(".txt")
+                icl_active = icl_enabled and voice_sample_path is not None
                 metadata = dedent(f"""\
                     Generated: {timestamp}
-                    Type: Trained Model
+                    Type: Trained Model{' (ICL)' if icl_active else ''}
                     Model: {checkpoint_path}
                     Speaker: {speaker_name}
                     Language: {language}
                     Seed: {seed}
-                    Instruct: {instruct.strip() if instruct else ''}
-                    Text: {text_to_generate.strip()}
+                    ICL Mode: {icl_active}
+                    ICL Dataset: {icl_dataset if icl_active else 'N/A'}
+                    ICL Sample: {icl_sample_name if icl_active else 'N/A'}
+                    Instruct: {instruct.strip() if instruct and not icl_enabled else ''}
+                    Text: {' '.join(text_to_generate.split())}
                     """)
                 metadata_file.write_text(metadata, encoding="utf-8")
 
                 progress(1.0, desc="Done!")
-                instruct_msg = f" with style: {instruct.strip()[:30]}..." if instruct and instruct.strip() else ""
+                instruct_msg = f" with style: {instruct.strip()[:30]}..." if instruct and instruct.strip() and not icl_enabled else ""
+                icl_msg = f" | ICL: {icl_dataset}/{icl_sample_name}" if icl_enabled and voice_sample_path else ""
                 if play_completion_beep:
                     play_completion_beep()
-                return str(output_file), f"Audio saved: {output_file.name}\nSpeaker: {speaker_name}{instruct_msg}\nSeed: {seed} | Trained Model"
+                return str(output_file), f"Audio saved: {output_file.name}\nSpeaker: {speaker_name}{instruct_msg}{icl_msg}\nSeed: {seed} | Trained Model"
 
             except Exception as e:
+                import traceback
+                traceback.print_exc()
                 return None, f"❌ Error generating audio: {str(e)}"
 
         def extract_speaker_name(selection):
@@ -380,10 +463,10 @@ class VoicePresetsTool(Tool):
             is_premium = voice_type == "Premium Speakers"
 
             if is_premium:
-                # Return in order: premium_section, trained_section, instruct_input, emotion_row, emotion_buttons_row,
+                # Return in order: speaker_section, trained_section, instruct_input, emotion_row, emotion_buttons_row,
                 # emotion_preset, emotion_intensity, temperature, top_p, repetition_penalty
                 return (
-                    gr.update(visible=True),   # premium_section
+                    gr.update(visible=True),   # speaker_section
                     gr.update(visible=False),  # trained_section
                     gr.update(visible=True),   # instruct_input
                     gr.update(visible=False),  # emotion_row
@@ -396,7 +479,7 @@ class VoicePresetsTool(Tool):
                 )
             else:
                 return (
-                    gr.update(visible=False),  # premium_section
+                    gr.update(visible=False),  # speaker_section
                     gr.update(visible=True),   # trained_section
                     gr.update(visible=False),  # instruct_input
                     gr.update(visible=True),   # emotion_row
@@ -409,8 +492,10 @@ class VoicePresetsTool(Tool):
                 )
 
         def generate_with_voice_type(text, lang, speaker_sel, instruct, seed, model_size, voice_type, premium_speaker, trained_model,
-                                     do_sample, temperature, top_k, top_p, repetition_penalty, max_new_tokens, progress=gr.Progress()):
+                                     do_sample, temperature, top_k, top_p, repetition_penalty, max_new_tokens,
+                                     icl_enabled=False, icl_dataset=None, icl_lister_value=None, progress=gr.Progress()):
             """Generate audio with either premium or trained voice."""
+            icl_sample_name = get_selected_icl_filename(icl_lister_value) if icl_lister_value else None
 
             if voice_type == "Premium Speakers":
                 speaker = extract_speaker_name(premium_speaker)
@@ -442,13 +527,14 @@ class VoicePresetsTool(Tool):
                 return generate_with_trained_model_handler(
                     text, lang, speaker_name, model_path, instruct, seed,
                     do_sample, temperature, top_k, top_p, repetition_penalty, max_new_tokens,
+                    icl_enabled, icl_dataset, icl_sample_name,
                     progress
                 )
 
         # Only wire events for components that exist (not None)
         if components.get('voice_type_radio') is not None:
             outputs = [
-                components['premium_section'], components['trained_section'],
+                components['speaker_section'], components['trained_section'],
                 components['custom_instruct_input'],
                 components.get('custom_emotion_row'),
                 components.get('custom_emotion_buttons_row'),
@@ -469,6 +555,63 @@ class VoicePresetsTool(Tool):
                 gr.update(choices=["(Select Model)"] + [m['display_name'] for m in get_trained_models()] if get_trained_models() else ["(No trained models found)"])
             ),
             outputs=[components['trained_model_dropdown']]
+        )
+
+        # ICL toggle: show/hide voice sample section
+        components['icl_enabled'].change(
+            lambda enabled: gr.update(visible=enabled),
+            inputs=[components['icl_enabled']],
+            outputs=[components['icl_sample_section']]
+        )
+
+        def get_selected_icl_filename(lister_value):
+            """Extract selected filename from FileLister value."""
+            if not lister_value:
+                return None
+            selected = lister_value.get("selected", [])
+            if len(selected) == 1:
+                return selected[0]
+            return None
+
+        # ICL dataset change: update sample lister
+        def update_icl_samples(folder):
+            """Update ICL sample lister when dataset changes."""
+            files = get_dataset_files(folder)
+            return files, None
+
+        components['icl_dataset_dropdown'].change(
+            update_icl_samples,
+            inputs=[components['icl_dataset_dropdown']],
+            outputs=[components['icl_voice_lister'], components['icl_audio_preview']]
+        )
+
+        # ICL refresh datasets
+        components['icl_refresh_datasets'].click(
+            lambda: gr.update(choices=["(Select Dataset)"] + get_dataset_folders(), value="(Select Dataset)"),
+            outputs=[components['icl_dataset_dropdown']]
+        )
+
+        # ICL sample preview on selection
+        def load_icl_audio_preview(lister_value, folder):
+            """Load ICL audio preview from FileLister selection."""
+            filename = get_selected_icl_filename(lister_value)
+            if not folder or not filename or folder in ("(No folders)", "(Select Dataset)"):
+                return None
+            audio_path = DATASETS_DIR / folder / filename
+            if audio_path.exists():
+                return str(audio_path)
+            return None
+
+        components['icl_voice_lister'].change(
+            load_icl_audio_preview,
+            inputs=[components['icl_voice_lister'], components['icl_dataset_dropdown']],
+            outputs=[components['icl_audio_preview']]
+        )
+
+        # Double-click = play preview
+        components['icl_voice_lister'].double_click(
+            fn=None,
+            js="() => { setTimeout(() => { const btn = document.querySelector('#icl-audio-preview .play-pause-button'); if (btn) btn.click(); }, 150); }"
         )
 
         # Apply emotion preset to Custom Voice parameters
@@ -534,7 +677,8 @@ class VoicePresetsTool(Tool):
                 components['custom_instruct_input'], components['custom_seed'], components['custom_model_size'],
                 components['voice_type_radio'], components['custom_speaker_dropdown'], components['trained_model_dropdown'],
                 components['custom_do_sample'], components['custom_temperature'], components['custom_top_k'], components['custom_top_p'],
-                components['custom_repetition_penalty'], components['custom_max_new_tokens']
+                components['custom_repetition_penalty'], components['custom_max_new_tokens'],
+                components['icl_enabled'], components['icl_dataset_dropdown'], components['icl_voice_lister']
             ],
             outputs=[components['custom_output_audio'], components['preset_status']]
         )

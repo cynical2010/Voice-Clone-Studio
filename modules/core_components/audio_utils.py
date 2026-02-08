@@ -5,6 +5,7 @@ Robust audio/video handling with proper error handling and fallbacks.
 """
 
 import os
+import re
 import platform
 import time
 import tempfile
@@ -59,16 +60,40 @@ def extract_audio_from_video(video_path, temp_dir):
     """
     try:
         import subprocess
+        import shutil
 
-        # Create temp output path
-        timestamp = datetime.now().strftime('%H%M%S')
-        filename = f"extracted_audio_{timestamp}.wav"
-        audio_output = Path(temp_dir) / filename
+        video_input = Path(video_path)
+
+        # Use a deterministic output name based on the video filename
+        # so re-dragging the same video reuses the cached extraction
+        stem = re.sub(r'[^\w\s.-]', '', video_input.stem).strip() or 'video'
+        audio_output = Path(temp_dir) / f"{stem}.wav"
+
+        # If we already have a cached extraction, reuse it
+        if audio_output.exists():
+            return str(audio_output), "Reused cached audio from video"
+
+        # Copy input video to project temp if it's outside the project
+        # (Gradio uploads go to system temp which can have permission issues for ffmpeg)
+        project_root = Path(temp_dir).parent
+        try:
+            video_input.resolve().relative_to(project_root.resolve())
+            local_video = video_input  # Already in project directory
+        except ValueError:
+            # Video is outside project (e.g. Gradio temp) — copy it locally
+            local_name = f"input_video_{stem}{video_input.suffix}"
+            local_video = Path(temp_dir) / local_name
+            try:
+                shutil.copy2(str(video_input), str(local_video))
+            except Exception:
+                local_video = video_input  # Fall back to original path
 
         # Use ffmpeg to extract audio
         cmd = [
             'ffmpeg',
-            '-i', str(video_path),
+            '-loglevel', 'error',  # Suppress banner/config output
+            '-nostdin',
+            '-i', str(local_video),
             '-vn',  # No video
             '-acodec', 'pcm_s16le',  # PCM 16-bit
             '-ar', '24000',  # 24kHz sample rate
@@ -79,17 +104,18 @@ def extract_audio_from_video(video_path, temp_dir):
 
         result = subprocess.run(cmd, capture_output=True, text=True)
 
-        # Check if failed due to permission/path issues
-        if result.returncode != 0 and ("Permission denied" in result.stderr or "No such file" in result.stderr):
-            print(f"ffmpeg failed writing to {audio_output}: {result.stderr}. Using system temp.")
-            audio_output = Path(tempfile.gettempdir()) / filename
-            cmd[-1] = str(audio_output)
-            result = subprocess.run(cmd, capture_output=True, text=True)
+        # Clean up the local video copy if we made one
+        if local_video != video_input and local_video.exists():
+            try:
+                local_video.unlink()
+            except Exception:
+                pass
 
         if result.returncode == 0 and audio_output.exists():
             return str(audio_output), "Extracted audio from video"
         else:
-            print(f"ffmpeg error: {result.stderr}")
+            err_msg = result.stderr.strip()[:200] if result.stderr else "Unknown error"
+            print(f"ffmpeg error: {err_msg}")
             return None, "⚠ Failed to extract audio from video"
 
     except FileNotFoundError:
@@ -266,12 +292,23 @@ def clean_audio(audio_file, temp_dir, get_deepfilter_model_func, progress_callba
         # Import DeepFilterNet functions
         from df.enhance import enhance
         from df.io import load_audio as df_load_audio, save_audio
+        import torch
 
         # Load audio using DeepFilterNet's loader
         audio, _ = df_load_audio(audio_file, sr=target_sr)
 
-        # Run enhancement
-        enhanced_audio = enhance(df_model, df_state=df_state, audio=audio)
+        # Ensure tensor is contiguous (video-extracted audio can be non-contiguous)
+        if hasattr(audio, 'is_contiguous') and not audio.is_contiguous():
+            audio = audio.contiguous()
+
+        # Run enhancement with cuDNN disabled to avoid CUDNN_STATUS_NOT_SUPPORTED
+        # errors from non-contiguous intermediate tensors inside DeepFilterNet
+        cudnn_was_enabled = torch.backends.cudnn.enabled
+        torch.backends.cudnn.enabled = False
+        try:
+            enhanced_audio = enhance(df_model, df_state=df_state, audio=audio)
+        finally:
+            torch.backends.cudnn.enabled = cudnn_was_enabled
 
         # Save output
         timestamp = datetime.now().strftime("%H%M%S")

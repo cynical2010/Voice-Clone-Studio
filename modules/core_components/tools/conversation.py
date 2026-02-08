@@ -1,7 +1,7 @@
 """
 Conversation Tab
 
-Create conversations using VibeVoice, Qwen Base, or Qwen CustomVoice.
+Create conversations using VibeVoice, Qwen Base, or Qwen Speakers.
 """
 # Setup path for standalone testing BEFORE imports
 if __name__ == "__main__":
@@ -61,10 +61,10 @@ class ConversationTool(Tool):
         CONV_ENGINE_MAP = {
             "VibeVoice": "VibeVoice",
             "Qwen Base": "Qwen3",
-            "Qwen CustomVoice": "Qwen3",
+            "Qwen Speakers": "Qwen3",
             "LuxTTS": "LuxTTS",
         }
-        ALL_CONV_CHOICES = ["VibeVoice", "Qwen Base", "Qwen CustomVoice", "LuxTTS"]
+        ALL_CONV_CHOICES = ["VibeVoice", "Qwen Base", "Qwen Speakers", "LuxTTS"]
 
         # Filter conversation choices based on enabled engines
         engine_settings = _user_config.get("enabled_engines", {})
@@ -84,7 +84,7 @@ class ConversationTool(Tool):
             initial_conv_model = visible_choices[0]
         is_vibevoice = initial_conv_model == "VibeVoice"
         is_qwen_base = initial_conv_model == "Qwen Base"
-        is_qwen_custom = initial_conv_model == "Qwen CustomVoice"
+        is_qwen_custom = initial_conv_model == "Qwen Speakers"
         is_luxtts = initial_conv_model == "LuxTTS"
 
         with gr.TabItem("Conversation"):
@@ -329,7 +329,7 @@ class ConversationTool(Tool):
                 with gr.Column(scale=1):
                     gr.Markdown("### Settings")
 
-                    # Qwen CustomVoice settings
+                    # Qwen Speakers settings
                     components['qwen_custom_settings'] = gr.Column(visible=is_qwen_custom)
                     with components['qwen_custom_settings']:
                         components['conv_model_size'] = gr.Dropdown(
@@ -500,7 +500,7 @@ class ConversationTool(Tool):
 
                     # Model-specific tips
                     qwen_custom_tips_text = dedent("""\
-                    **Qwen CustomVoice Tips:**
+                    **Qwen Speakers Tips:**
                     - Fast generation with preset voices
                     - Up to 9 different speakers
                     - Tip: Use `[break=1.5]` inline for custom pauses
@@ -652,7 +652,7 @@ class ConversationTool(Tool):
                                           pause_question, pause_hyphen, language, seed, model_size,
                                           do_sample, temperature, top_k, top_p, repetition_penalty, max_new_tokens,
                                           progress=gr.Progress()):
-            """Generate multi-speaker conversation with Qwen CustomVoice preset speakers."""
+            """Generate multi-speaker conversation with Qwen Speakers preset speakers."""
             if not conversation_data or not conversation_data.strip():
                 return None, "❌ Please enter conversation lines."
 
@@ -1299,7 +1299,7 @@ class ConversationTool(Tool):
 
         def unified_conversation_generate(
             model_type, script,
-            # Qwen CustomVoice params
+            # Qwen Speakers params
             qwen_custom_pause_linebreak, qwen_custom_pause_period, qwen_custom_pause_comma,
             qwen_custom_pause_question, qwen_custom_pause_hyphen, qwen_custom_model_size,
             # Qwen Base params
@@ -1323,7 +1323,7 @@ class ConversationTool(Tool):
             seed, progress=gr.Progress()
         ):
             """Route to appropriate generation function based on model type."""
-            if model_type == "Qwen CustomVoice":
+            if model_type == "Qwen Speakers":
                 qwen_size = "1.7B" if qwen_custom_model_size == "Large" else "0.6B"
                 return generate_conversation_handler(script, qwen_custom_pause_linebreak, qwen_custom_pause_period,
                                                      qwen_custom_pause_comma, qwen_custom_pause_question,
@@ -1369,7 +1369,7 @@ class ConversationTool(Tool):
             unified_conversation_generate,
             inputs=[
                 components['conv_model_type'], components['conversation_script'],
-                # Qwen CustomVoice
+                # Qwen Speakers
                 components['conv_pause_linebreak'], components['conv_pause_period'], components['conv_pause_comma'],
                 components['conv_pause_question'], components['conv_pause_hyphen'], components['conv_model_size'],
                 # Qwen Base
@@ -1402,7 +1402,7 @@ class ConversationTool(Tool):
 
         # Toggle UI based on model selection
         def toggle_conv_ui(model_type):
-            is_qwen_custom = model_type == "Qwen CustomVoice"
+            is_qwen_custom = model_type == "Qwen Speakers"
             is_qwen_base = model_type == "Qwen Base"
             is_vibevoice = model_type == "VibeVoice"
             is_luxtts = model_type == "LuxTTS"

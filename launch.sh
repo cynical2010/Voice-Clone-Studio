@@ -8,9 +8,8 @@ echo ""
 
 source venv/bin/activate
 
-echo "Starting the UI..."
-echo ""
-echo ""
+echo "Starting Voice Clone Studio..."
+echo "Checking available engines..."
 echo ""
 
 python voice_clone_studio.py

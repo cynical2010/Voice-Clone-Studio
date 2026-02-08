@@ -19,6 +19,11 @@ import json
 import random
 import tempfile
 import time
+import logging
+
+# Suppress Gradio's noisy HTTP request logs
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 import gradio as gr
 
@@ -77,6 +82,20 @@ sys.path.insert(0, str(Path(__file__).parent / "modules"))
 
 # Load config (CONFIG_FILE imported from tools)
 _user_config = load_config()
+
+# Check which engines are available before building UI
+from modules.core_components.constants import check_engine_availability
+print()
+print("=" * 50)
+print("Checking available engines...")
+print("=" * 50)
+check_engine_availability(
+    _user_config,
+    save_config_fn=lambda key, value: save_config(_user_config, key, value)
+)
+print("=" * 50)
+print()
+
 _active_emotions = load_emotions_from_config(_user_config)
 
 # Ensure config has emotions key set (emotion_manager expects it)
@@ -93,6 +112,14 @@ MODELS_DIR = Path(__file__).parent / _user_config.get("models_folder", "models")
 for dir_path in [SAMPLES_DIR, OUTPUT_DIR, DATASETS_DIR, TEMP_DIR, MODELS_DIR]:
     dir_path.mkdir(exist_ok=True)
 
+# Clean temp folder at startup
+for f in TEMP_DIR.iterdir():
+    try:
+        if f.is_file():
+            f.unlink()
+    except Exception:
+        pass
+
 # ============================================================================
 # CONSTANTS - Import from central location
 # ============================================================================
@@ -103,9 +130,13 @@ from modules.core_components.constants import (
     MODEL_SIZES_CUSTOM,
     MODEL_SIZES_DESIGN,
     MODEL_SIZES_VIBEVOICE,
+    MODEL_SIZES_QWEN3_ASR,
     VOICE_CLONE_OPTIONS,
     DEFAULT_VOICE_CLONE_MODEL,
     TTS_ENGINES,
+    ASR_ENGINES,
+    ASR_OPTIONS,
+    DEFAULT_ASR_MODEL,
     LANGUAGES,
     CUSTOM_VOICE_SPEAKERS,
     SUPPORTED_MODELS,
@@ -175,9 +206,13 @@ def create_ui():
                 'MODEL_SIZES_CUSTOM': MODEL_SIZES_CUSTOM,
                 'MODEL_SIZES_DESIGN': MODEL_SIZES_DESIGN,
                 'MODEL_SIZES_VIBEVOICE': MODEL_SIZES_VIBEVOICE,
+                'MODEL_SIZES_QWEN3_ASR': MODEL_SIZES_QWEN3_ASR,
                 'VOICE_CLONE_OPTIONS': VOICE_CLONE_OPTIONS,
                 'DEFAULT_VOICE_CLONE_MODEL': DEFAULT_VOICE_CLONE_MODEL,
                 'TTS_ENGINES': TTS_ENGINES,
+                'ASR_ENGINES': ASR_ENGINES,
+                'ASR_OPTIONS': ASR_OPTIONS,
+                'DEFAULT_ASR_MODEL': DEFAULT_ASR_MODEL,
                 'LANGUAGES': LANGUAGES,
                 'CUSTOM_VOICE_SPEAKERS': CUSTOM_VOICE_SPEAKERS,
             },
@@ -223,12 +258,20 @@ def create_ui():
 if __name__ == "__main__":
     theme = gr.themes.Base.load('modules/core_components/ui_components/theme.json')
     app = create_ui()
-    app.launch(
-        server_name=os.getenv("GRADIO_SERVER_NAME", "127.0.0.1"),
-        server_port=7860,
-        share=False,
-        inbrowser=True,
-        theme=theme,
-        css=TRIGGER_HIDE_CSS + CONFIRMATION_MODAL_CSS + INPUT_MODAL_CSS,
-        head=CONFIRMATION_MODAL_HEAD + INPUT_MODAL_HEAD
-    )
+    try:
+        app.launch(
+            server_name=os.getenv("GRADIO_SERVER_NAME", "127.0.0.1"),
+            server_port=7860,
+            share=False,
+            inbrowser=True,
+            theme=theme,
+            css=TRIGGER_HIDE_CSS + CONFIRMATION_MODAL_CSS + INPUT_MODAL_CSS,
+            head=CONFIRMATION_MODAL_HEAD + INPUT_MODAL_HEAD
+        )
+    except OSError:
+        print()
+        print("=" * 50)
+        print("Voice Clone Studio is already running!")
+        print("Check your browser at http://127.0.0.1:7860")
+        print("=" * 50)
+        print()

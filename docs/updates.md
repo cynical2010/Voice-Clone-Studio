@@ -1,5 +1,46 @@
 # Version History
 
+## February 8, 2026
+#### Version 1.3.0 - Auto-Split Audio, Dataset Management & Engine Controls
+
+**Auto-Split Audio**
+- **Automatic Audio Splitting** - Split long audio files into clean sentence-level clips using Qwen3 or Whisper's timestamp extraction.
+- **One-Click Dataset Creation** - Split audio and auto-save segments with transcripts directly into dataset folders
+- **Trim and discard Silent areas** - Uses the timestamp data to find and remove non verbal moments.
+
+**Unified ASR Engine**
+- **Unified ASR Dropdown** - Single dropdown for all transcription engines (Qwen3 ASR, VibeVoice ASR, Whisper) replacing the old radio + size selector
+- **ASR Engine Toggles** - Enable or disable individual ASR engines in Settings, just like TTS engines
+- **Dynamic Defaults** - ASR dropdown automatically picks the best available engine based on what's installed and enabled
+- **Added Whisper Large** - With the addition of automatic disply of available ASR engine, adding more choices doesn't bloat the ui.
+
+**Engine Availability Checker**
+- **Startup Engine Detection** - App now auto-checks which TTS and ASR engines are installed at launch
+- **Auto-Disable Missing Engines** - Engines that aren't installed are automatically hidden from dropdowns
+- **Clean Console Output** - Clear status report showing which engines are available, skipped, or missing
+
+**Dataset Management**
+- **Create Dataset Folders** - Create new dataset folders directly from the Prep Audio UI
+- **Manage Existing Datasets** - Delete dataset folders with confirmation modal
+- **Drag & Drop Audio** - Import audio files by dragging them into the editor
+
+**Quality of Life**
+- **Renamed "Qwen CustomVoice" to "Qwen Speakers"** - Clearer label in Conversation and Voice Presets tabs
+- **Overwrite Protection** - Inline confirmation bar when saving a file that already exists
+- **Friendly Port Error** - Clean message when Voice Clone Studio is already running instead of a traceback
+- **Whisper Now Optional** - Moved from auto-install to optional in setup wizard, same as Qwen3-ASR.
+- **Suppressed Noisy Warnings** - Silenced verbose k2 and flash-attn warnings during engine checks
+
+## February 8, 2026
+#### Version 1.2.0 - Qwen3-ASR & ICL Support for Trained Models
+- **Qwen3 ASR Integration** - Added Qwen3-ASR as a new transcription engine in Prep Audio, supporting 52 languages and dialects
+- **Model Size Selector** - Choose between Small (0.6B, fast) and Large (1.7B, best accuracy) Qwen3 ASR models
+- **Language Selection** - Qwen3 ASR supports language hints for improved accuracy, shared with Whisper's language dropdown
+- **ICL (In-Context Learning) for Trained Models** - Enhanced Voice Presets with optional ICL mode that provides real-time prosody and style cues on top of trained voice identity
+- **Dataset-Based ICL Samples** - Select reference audio from your training datasets for ICL, with audio preview and automatic transcript loading
+- **Speaker Encoder Transplant** - Automatic fix for trained model checkpoints missing speaker encoder weights, loading them from the matching base model at runtime
+- **Setup Script Integration** - Qwen3 ASR offered as optional install in setup-windows.bat, setup-linux.sh, and Dockerfile
+- **Suppressed Gradio HTTP Logs** - Silenced noisy httpx/httpcore info-level logs from Gradio 6
 
 ## February 7, 2026
 #### Version 1.1.0 - Added support for LuxTTS
