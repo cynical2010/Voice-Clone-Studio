@@ -308,7 +308,8 @@ class PrepSamplesTool(Tool):
                 'Qwen3 ASR - Small' -> ('Qwen3 ASR', 'Small')
                 'Qwen3 ASR - Large' -> ('Qwen3 ASR', 'Large')
                 'VibeVoice ASR - Default' -> ('VibeVoice ASR', None)
-                'Whisper - Default' -> ('Whisper', None)
+                'Whisper - Medium' -> ('Whisper', 'Medium')
+                'Whisper - Large' -> ('Whisper', 'Large')
             """
             if " - " in model_str:
                 engine, size = model_str.rsplit(" - ", 1)
@@ -559,8 +560,8 @@ class PrepSamplesTool(Tool):
                 else:
                     if not asr_manager.whisper_available:
                         return "Whisper not available. Use VibeVoice ASR instead.", ""
-                    progress(0.2, desc="Loading Whisper...")
-                    model = asr_manager.get_whisper()
+                    progress(0.2, desc=f"Loading Whisper ({size or 'Medium'})...")
+                    model = asr_manager.get_whisper(size=size or "Medium")
                     progress(0.4, desc="Transcribing...")
                     options = {}
                     if whisper_language and whisper_language != "Auto-detect":
@@ -829,9 +830,9 @@ class PrepSamplesTool(Tool):
                 else:
                     if not asr_manager.whisper_available:
                         return "Whisper not available. Use VibeVoice ASR instead."
-                    progress(0.05, desc="Loading Whisper model...")
+                    progress(0.05, desc=f"Loading Whisper ({size or 'Medium'})...")
                     try:
-                        model = asr_manager.get_whisper()
+                        model = asr_manager.get_whisper(size=size or "Medium")
                         status_log.append("Loaded Whisper model")
                     except ImportError as e:
                         return f"Error: {str(e)}"
@@ -1201,8 +1202,8 @@ class PrepSamplesTool(Tool):
                     if not asr_manager.whisper_available:
                         return "Whisper not available. Use Qwen3 ASR instead.", gr.update()
 
-                    progress(0.05, desc="Loading Whisper...")
-                    model = asr_manager.get_whisper()
+                    progress(0.05, desc=f"Loading Whisper ({asr_size or 'Medium'})...")
+                    model = asr_manager.get_whisper(size=asr_size or "Medium")
 
                     progress(0.15, desc="Transcribing with word timestamps...")
                     whisper_options = {"word_timestamps": True}

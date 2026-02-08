@@ -105,7 +105,7 @@ ASR_ENGINES = {
     },
     "Whisper": {
         "label": "Whisper",
-        "choices": ["Whisper - Default"],
+        "choices": ["Whisper - Medium", "Whisper - Large"],
         "default_enabled": True,
         "show_language": True,
         "import_check": ("whisper", None),

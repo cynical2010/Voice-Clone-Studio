@@ -114,24 +114,43 @@ class ASRManager:
 
         raise RuntimeError(f"Failed to load model: {str(last_error)}")
 
-    def get_whisper(self):
-        """Load Whisper ASR model."""
+    def get_whisper(self, size="medium"):
+        """Load Whisper ASR model.
+
+        Args:
+            size: Model size - "medium" or "large" (default: "medium")
+        """
         if not self.whisper_available:
             raise ImportError("Whisper is not installed on this system")
+
+        # Map friendly names to whisper model names
+        size_map = {"Medium": "medium", "Large": "large", "medium": "medium", "large": "large"}
+        whisper_size = size_map.get(size, "medium")
+
+        # Unload if switching sizes
+        if self._whisper_model is not None and getattr(self, '_whisper_size', None) != whisper_size:
+            print(f"Switching Whisper model from {self._whisper_size} to {whisper_size}...")
+            del self._whisper_model
+            self._whisper_model = None
+            import gc, torch
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
         self._check_and_unload_if_different("whisper_asr")
 
         if self._whisper_model is None:
-            print("Loading Whisper ASR model...")
+            print(f"Loading Whisper ASR model ({whisper_size})...")
             import whisper
 
             # Check for local cache
             whisper_cache = Path("./models/whisper")
             if whisper_cache.exists():
-                self._whisper_model = whisper.load_model("medium", download_root="./models/whisper")
+                self._whisper_model = whisper.load_model(whisper_size, download_root="./models/whisper")
             else:
-                self._whisper_model = whisper.load_model("medium")
+                self._whisper_model = whisper.load_model(whisper_size)
 
+            self._whisper_size = whisper_size
             print("Whisper ASR model loaded!")
 
         return self._whisper_model

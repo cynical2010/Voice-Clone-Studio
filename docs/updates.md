@@ -12,6 +12,7 @@
 - **Unified ASR Dropdown** - Single dropdown for all transcription engines (Qwen3 ASR, VibeVoice ASR, Whisper) replacing the old radio + size selector
 - **ASR Engine Toggles** - Enable or disable individual ASR engines in Settings, just like TTS engines
 - **Dynamic Defaults** - ASR dropdown automatically picks the best available engine based on what's installed and enabled
+- **Added Whisper Large** - With the addition of automatic disply of available ASR engine, adding more choices doesn't bloat the ui.
 
 **Engine Availability Checker**
 - **Startup Engine Detection** - App now auto-checks which TTS and ASR engines are installed at launch
