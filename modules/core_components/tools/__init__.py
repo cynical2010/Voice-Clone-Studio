@@ -20,6 +20,7 @@ from modules.core_components.tools import conversation
 from modules.core_components.tools import voice_design
 from modules.core_components.tools import prep_audio
 from modules.core_components.tools import train_model
+from modules.core_components.tools import sound_effects
 from modules.core_components.tools import output_history
 from modules.core_components.tools import settings
 
@@ -32,6 +33,7 @@ ALL_TOOLS = {
     'voice_design': (voice_design, voice_design.VoiceDesignTool.config),
     'prep_audio': (prep_audio, prep_audio.PrepSamplesTool.config),
     'train_model': (train_model, train_model.TrainModelTool.config),
+    'sound_effects': (sound_effects, sound_effects.SoundEffectsTool.config),
     'output_history': (output_history, output_history.OutputHistoryTool.config),
     'settings': (settings, settings.SettingsTool.config),
 }
@@ -775,6 +777,7 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
         'MODEL_SIZES_DESIGN': constants.get('MODEL_SIZES_DESIGN'),
         'MODEL_SIZES_VIBEVOICE': constants.get('MODEL_SIZES_VIBEVOICE'),
         'MODEL_SIZES_QWEN3_ASR': constants.get('MODEL_SIZES_QWEN3_ASR', ['Small', 'Large']),
+        'MODEL_SIZES_MMAUDIO': constants.get('MODEL_SIZES_MMAUDIO', ['Medium (44kHz)', 'Large v2 (44kHz)']),
         'VOICE_CLONE_OPTIONS': constants.get('VOICE_CLONE_OPTIONS'),
         'DEFAULT_VOICE_CLONE_MODEL': constants.get('DEFAULT_VOICE_CLONE_MODEL'),
         'TTS_ENGINES': constants.get('TTS_ENGINES', {}),
@@ -861,6 +864,7 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
     if managers:
         shared_state['tts_manager'] = managers.get('tts_manager')
         shared_state['asr_manager'] = managers.get('asr_manager')
+        shared_state['foley_manager'] = managers.get('foley_manager')
 
     return shared_state
 

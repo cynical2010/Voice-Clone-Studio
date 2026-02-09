@@ -31,6 +31,7 @@ TOGGLEABLE_TOOLS = [
     ("Voice Design", "Voice Design"),
     ("Prep Samples", "Prep Samples"),
     ("Train Model", "Train Model"),
+    ("Sound Effects", "Sound Effects"),
     ("Output History", "Output History"),
 ]
 

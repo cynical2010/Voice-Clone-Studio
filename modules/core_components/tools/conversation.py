@@ -88,6 +88,7 @@ class ConversationTool(Tool):
         is_luxtts = initial_conv_model == "LuxTTS"
 
         with gr.TabItem("Conversation"):
+            gr.Markdown("Choose a model and create multi-speaker conversations with your custom voices")
             components['conv_model_type'] = gr.Radio(
                 choices=visible_choices,
                 value=initial_conv_model,

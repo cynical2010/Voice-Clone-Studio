@@ -27,6 +27,11 @@ from .asr_manager import (
     get_asr_manager,
 )
 
+from .foley_manager import (
+    FoleyManager,
+    get_foley_manager,
+)
+
 __all__ = [
     # Utilities
     "get_device",
@@ -47,4 +52,8 @@ __all__ = [
     # ASR
     "ASRManager",
     "get_asr_manager",
+
+    # Foley / Sound Effects
+    "FoleyManager",
+    "get_foley_manager",
 ]

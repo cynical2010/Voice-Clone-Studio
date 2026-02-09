@@ -1,9 +1,9 @@
 # Voice Clone Studio
 
-A modular Gradio-based web UI for voice cloning, voice design, and multi-speaker conversation, powered by [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), [VibeVoice](https://github.com/microsoft/VibeVoice) and [LuxTTS](https://github.com/ysharma3501/LuxTTS)
+A modular Gradio-based web UI for voice cloning, voice design, multi-speaker conversation and sound effects, powered by [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), [VibeVoice](https://github.com/microsoft/VibeVoice), [LuxTTS](https://github.com/ysharma3501/LuxTTS) and [MMAudio](https://github.com/hkchengrex/MMAudio).
 Supports both Whisper and VibeVoice ASR for automatic transcription.
 
-![Voice Clone Studio](https://img.shields.io/badge/Voice%20Clone%20Studio-v1.0-blue) ![Qwen3-TTS](https://img.shields.io/badge/Qwen3--TTS-Powered-blue) ![LuxTTS](https://img.shields.io/badge/LuxTTS-TTS-orange) ![VibeVoice](https://img.shields.io/badge/VibeVoice-TTS-green) ![VibeVoice](https://img.shields.io/badge/VibeVoice-ASR-green) 
+![Voice Clone Studio](https://img.shields.io/badge/Voice%20Clone%20Studio-v1.4-blue) ![Qwen3-TTS](https://img.shields.io/badge/Qwen3--TTS-Powered-blue) ![LuxTTS](https://img.shields.io/badge/LuxTTS-TTS-orange) ![VibeVoice](https://img.shields.io/badge/VibeVoice-TTS-green) ![VibeVoice](https://img.shields.io/badge/VibeVoice-ASR-green) ![MMAudio](https://img.shields.io/badge/MMAudio-SFX-purple)
 
 ## Architecture
 
@@ -26,6 +26,7 @@ Create multi-speaker dialogues using either Qwen's premium voices or your own cu
 **Choose Your Engine:**
 - **Qwen** - Fast generation with 9 preset voices, optimized for their native languages
 - **VibeVoice** - High-quality custom voices, up to 90 minutes continuous, perfect for podcasts/audiobooks
+- **LuxTTS** - 
 
 **Unified Script Format:**
 Write scripts using `[N]:` format - works seamlessly with both engines:
@@ -122,6 +123,16 @@ Unified audio preparation workspace for both voice samples and training datasets
 - **Batch Transcribe** - Process entire folders of audio files at once
 - **Save as Sample** - One-click sample creation
 - **Dataset Management** - Create, delete, and organize dataset folders directly from the UI
+
+### Sound Effects
+Generate sound effects and ambient audio using MMAudio (CVPR 2025, MIT license):
+
+- **Text-to-Audio** - Describe any sound and generate high-quality 44.1kHz audio
+- **Video-to-Audio** - Drop in a video clip and generate synchronized sound effects
+- **Multiple Models** - Medium (2.4GB) and Large v2 (3.9GB) built-in, plus custom model support
+- **Custom Models** - Load your own `.pth` or `.safetensors` checkpoints with automatic architecture detection
+- **Video Preview** - Source/Result toggle to compare original video against the audio-muxed result
+- **Fine Controls** - Adjustable duration, guidance strength, and negative prompts
 
 ### Output History
 View, play back, and manage your previously generated audio files. Multi-select for batch deletion, double-click to play.
@@ -361,6 +372,7 @@ Voice-Clone-Studio/
     │   │   ├── voice_presets.py
     │   │   ├── conversation.py
     │   │   ├── voice_design.py
+    │   │   ├── sound_effects.py
     │   │   ├── prep_audio.py
     │   │   ├── output_history.py
     │   │   ├── train_model.py
@@ -387,9 +399,11 @@ Each tab lets you choose between model sizes:
 | **Qwen3-TTS Base** | Small, Large | Voice cloning from samples |
 | **Qwen3-TTS CustomVoice** | Small, Large | Premium speakers with style control |
 | **Qwen3-TTS VoiceDesign** | 1.7B only | Voice design from descriptions |
+| **LuxTTS** | Large | Voice cloning with speaker encoder |
 | **VibeVoice-TTS** | Small, Large | Voice cloning & Long-form multi-speaker (up to 90 min) |
 | **VibeVoice-ASR** | Large | Audio transcription |
 | **Whisper** | Medium | Audio transcription |
+| **MMAudio** | Medium, Large v2 | Sound effects generation (text & video to audio) |
 
 - **Small** = Faster, less VRAM (Qwen: 0.6B ~4GB, VibeVoice: 1.5B)
 - **Large** = Better quality, more expressive (Qwen: 1.7B ~8GB, VibeVoice: Large model)
@@ -411,7 +425,9 @@ This project is licensed under the **Apache License 2.0** - see the [LICENSE](LI
 This project is based on and uses code from:
 - **[Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS)**    - Apache 2.0 License (Alibaba)
 - **[VibeVoice](https://github.com/microsoft/VibeVoice)** - MIT License
+- **[LuxTTS](https://github.com/ysharma3501/LuxTTS)**     - Apache 2.0 License
 - **[Gradio](https://gradio.app/)**                       - Apache 2.0 License
+- **[MMAudio](https://github.com/hkchengrex/MMAudio)**       - MIT License
 - **[DeepFilterNet](https://github.com/Rikorose/DeepFilterNet)** - MIT License
 
 ## Updates

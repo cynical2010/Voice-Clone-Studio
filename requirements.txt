@@ -19,6 +19,14 @@ numpy
 diffusers
 markdown
 
+# MMAudio Sound Effects dependencies (torchvision installed with PyTorch in setup script)
+open_clip_torch
+torchdiffeq
+timm
+colorlog
+opencv-python
+omegaconf
+
 # LuxTTS voice cloning (optional - install via setup script or manually)
 # Prerequisites (install in order before zipvoice):
 #   pip install git+https://github.com/ysharma3501/LinaCodec.git

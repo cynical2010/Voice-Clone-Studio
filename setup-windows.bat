@@ -130,7 +130,7 @@ if "%CUDA_CHOICE%"=="3" set CUDA_VER=cu121
 if defined CUDA_VER (
     echo Installing PyTorch with !CUDA_VER!...
     echo This may take several minutes...
-    pip install torch==2.9.1 torchaudio --index-url https://download.pytorch.org/whl/!CUDA_VER!
+    pip install torch==2.9.1 torchaudio torchvision --index-url https://download.pytorch.org/whl/!CUDA_VER!
     if !errorlevel! neq 0 (
         echo ERROR: Failed to install PyTorch!
         pause

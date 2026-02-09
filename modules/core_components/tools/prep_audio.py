@@ -74,20 +74,17 @@ class PrepSamplesTool(Tool):
             else:
                 gr.Markdown("Prepare audio samples for voice cloning.")
 
+            components['prep_data_type'] = gr.Radio(
+                choices=['Samples', 'Datasets'],
+                value='Samples',
+                show_label=False,
+                container=False,
+                visible=train_model_enabled,
+            )
+
             with gr.Row():
                 # Left column - File browser
-
                 with gr.Column(scale=1):
-                    if train_model_enabled is True:
-                        gr.Markdown("### Select Samples or Dataset")
-
-                    components['prep_data_type'] = gr.Radio(
-                        choices=['Samples', 'Datasets'],
-                        value='Samples',
-                        show_label=False,
-                        visible=train_model_enabled,
-                    )
-
                     # --- Samples mode ---
                     with gr.Column(visible=True) as samples_col:
                         gr.Markdown("### Audio Samples")
@@ -156,20 +153,21 @@ class PrepSamplesTool(Tool):
                     if default_asr not in visible_asr_options:
                         default_asr = visible_asr_options[0]
 
-                    components['transcribe_model'] = gr.Dropdown(
-                        choices=visible_asr_options,
-                        value=default_asr,
-                        label="Transcription Engine",
-                    )
+                    with gr.Row():
+                        components['transcribe_model'] = gr.Dropdown(
+                            choices=visible_asr_options,
+                            value=default_asr,
+                            label="Transcription Engine",
+                        )
 
-                    # Language dropdown (shown for Qwen3 ASR and Whisper)
-                    show_lang = any(k in default_asr for k in ("Qwen3 ASR", "Whisper"))
-                    components['whisper_language'] = gr.Dropdown(
-                        choices=["Auto-detect"] + LANGUAGES[1:],
-                        value=_user_config.get("whisper_language", "Auto-detect"),
-                        label="Language",
-                        visible=show_lang
-                    )
+                        # Language dropdown (shown for Qwen3 ASR and Whisper)
+                        show_lang = any(k in default_asr for k in ("Qwen3 ASR", "Whisper"))
+                        components['whisper_language'] = gr.Dropdown(
+                            choices=["Auto-detect"] + LANGUAGES[1:],
+                            value=_user_config.get("whisper_language", "Auto-detect"),
+                            label="Language",
+                            visible=show_lang
+                        )
 
                 # Right column - Audio editing
                 with gr.Column(scale=2):
@@ -360,7 +358,7 @@ class PrepSamplesTool(Tool):
                 None,                            # prep_audio_editor value
                 "",                              # transcription_output
                 "",                              # prep_status
-                "",                              # existing_sample_info
+                gr.update(visible=not is_ds, value=""),  # existing_sample_info
                 heading,                         # editor_heading
                 gr.update(visible=show_auto_split),  # auto_split_accordion
                 gr.update(visible=show_auto_split),  # auto_split_btn

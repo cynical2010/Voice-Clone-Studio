@@ -1,6 +1,17 @@
 # Version History
 
 ## February 8, 2026
+#### Version 1.4.0 - Sound Effects with the addition of MMAudio
+
+**Sound Effects (MMAudio)**
+- **New Sound Effects Tool** - Generate sound effects and ambient audio using MMAudio (CVPR 2025, MIT license), supporting both text-to-audio and video-to-audio modes
+- **Text-to-Audio** - Describe any sound and generate 44.1kHz audio with adjustable duration, guidance strength, and negative prompts
+- **Video-to-Audio** - Drop in a video clip and MMAudio generates matching sound effects synchronized to the visual content
+- **Multiple Model Sizes** - Choose between Medium (2.4GB) and Large v2 (3.9GB) built-in models, with support for custom models
+- **Custom Model Support** - Load your own `.pth` or `.safetensors` MMAudio checkpoints with automatic architecture detection
+- **Video Preview** - Source/Result toggle to compare original video against the generated audio-muxed result
+
+## February 8, 2026
 #### Version 1.3.0 - Auto-Split Audio, Dataset Management & Engine Controls
 
 **Auto-Split Audio**
