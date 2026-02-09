@@ -140,12 +140,15 @@ Centralized application configuration:
 ### Prerequisites
 
 - Python 3.10+ (recommended for all platforms)
-- CUDA-compatible GPU (recommended: 8GB+ VRAM)
+- **Windows/Linux:** CUDA-compatible GPU (recommended: 8GB+ VRAM)
+- **macOS:** Apple Silicon (M1/M2/M3/M4) for MPS acceleration, or Intel Mac (CPU-only)
 - **SOX**  (Sound eXchange) - Required for audio processing
 - **FFMPEG** - Multimedia framework required for audio format conversion
-- [Flash Attention 2](https://github.com/Dao-AILab/flash-attention) (optional but recommended)
+- [Flash Attention 2](https://github.com/Dao-AILab/flash-attention) (optional, CUDA only)
 
-**Note for Linux users:** The Linux installation skips `openai-whisper` (compatibility issues). VibeVoice ASR is used for transcription instead.
+**Note for Linux/macOS users:** `openai-whisper` is skipped (compatibility issues). Use VibeVoice ASR or Qwen3 ASR for transcription instead.
+
+**Note for macOS users:** Model training is not supported on macOS. The Train Model tab is automatically hidden.
 
 ### Setup
 
@@ -192,6 +195,28 @@ This will automatically:
 - Handle ONNX Runtime installation issues
 - Warn about Whisper compatibility if needed
 
+#### Quick Setup (macOS)
+
+1. Clone the repository:
+```bash
+git clone https://github.com/FranckyB/Voice-Clone-Studio.git
+cd Voice-Clone-Studio
+```
+
+2. Make the setup script executable and run it:
+```bash
+chmod +x setup-mac.sh
+./setup-mac.sh
+```
+
+This will automatically:
+- Detect Apple Silicon vs Intel Mac
+- Install ffmpeg and sox via Homebrew
+- Create virtual environment
+- Install PyTorch with MPS support (no CUDA needed)
+- Install all dependencies with macOS-compatible fallbacks
+- Offer optional LuxTTS and Qwen3 ASR installation
+
 #### Manual Setup (All Platforms)
 
 1. Clone the repository:
@@ -209,10 +234,13 @@ venv\Scripts\activate
 source venv/bin/activate
 ```
 
-3. (NVIDIA GPU) Install PyTorch with CUDA support:
+3. Install PyTorch:
 ```bash
-# Linux/Windows
+# Windows/Linux (NVIDIA GPU)
 pip install torch==2.9.1 torchaudio --index-url https://download.pytorch.org/whl/cu130
+
+# macOS (MPS support built-in)
+pip install torch==2.9.1 torchaudio
 ```
 
 4. Install dependencies:
@@ -257,8 +285,8 @@ sudo dnf install ffmpeg
 brew install ffmpeg
 ```
 
-7. (Optional) Install FlashAttention 2  for faster generation:
-**Note:** The application automatically detects and uses the best available attention mechanism. Configure in Settings tab: `auto` (recommended) → `flash_attention_2` → `sdpa` → `eager`
+7. (Optional) Install FlashAttention 2 for faster generation (CUDA only):
+**Note:** The application automatically detects and uses the best available attention mechanism. Configure in Settings tab: `flash_attention_2` (CUDA only) → `sdpa` (CUDA/MPS) → `eager` (all devices)
 
 ## Troubleshooting
 For troubleshooting solutions, see [docs/troubleshooting.md](docs/troubleshooting.md).
@@ -306,9 +334,13 @@ docker-compose exec voice-clone-studio python tests/integration_test_denoiser.py
 python voice_clone_studio.py
 ```
 
-Or use the batch file (Windows):
+Or use the launcher scripts:
 ```bash
+# Windows
 launch.bat
+
+# Linux/macOS
+./launch.sh
 ```
 
 The UI will open at `http://127.0.0.1:7860`
@@ -343,6 +375,7 @@ Voice-Clone-Studio/
 ├── config.json                    # User preferences & enabled tools
 ├── requirements.txt               # Python dependencies
 ├── launch.bat / launch.sh         # Launcher scripts
+├── setup-windows.bat / setup-linux.sh / setup-mac.sh  # Platform setup scripts
 ├── wheel/                         # Pre-built custom Gradio components
 │   └── gradio_filelister-0.4.0-py3-none-any.whl
 ├── samples/                       # Voice samples (.wav + .json)

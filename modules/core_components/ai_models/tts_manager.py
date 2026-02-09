@@ -11,7 +11,7 @@ from typing import Dict, Tuple, Optional
 
 from .model_utils import (
     get_device, get_dtype, get_attention_implementation,
-    check_model_available_locally, empty_cuda_cache, log_gpu_memory
+    check_model_available_locally, empty_device_cache, log_gpu_memory, set_seed
 )
 
 
@@ -119,8 +119,8 @@ class TTSManager:
             self._qwen3_base_model, _ = self._load_model_with_attention(
                 Qwen3TTSModel,
                 model_name,
-                device_map="cuda:0",
-                dtype=torch.bfloat16,
+                device_map=get_device(),
+                dtype=get_dtype(),
                 low_cpu_mem_usage=self.user_config.get("low_cpu_mem_usage", False)
             )
             self._qwen3_base_size = size
@@ -140,8 +140,8 @@ class TTSManager:
             self._qwen3_voice_design_model, _ = self._load_model_with_attention(
                 Qwen3TTSModel,
                 "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
-                device_map="cuda:0",
-                dtype=torch.bfloat16,
+                device_map=get_device(),
+                dtype=get_dtype(),
                 low_cpu_mem_usage=self.user_config.get("low_cpu_mem_usage", False)
             )
             print("VoiceDesign model loaded!")
@@ -162,8 +162,8 @@ class TTSManager:
             self._qwen3_custom_voice_model, _ = self._load_model_with_attention(
                 Qwen3TTSModel,
                 model_name,
-                device_map="cuda:0",
-                dtype=torch.bfloat16,
+                device_map=get_device(),
+                dtype=get_dtype(),
                 low_cpu_mem_usage=self.user_config.get("low_cpu_mem_usage", False)
             )
             self._qwen3_custom_voice_size = size
@@ -205,8 +205,8 @@ class TTSManager:
                     self._vibevoice_tts_model, _ = self._load_model_with_attention(
                         VibeVoiceForConditionalGenerationInference,
                         model_path,
-                        dtype=torch.bfloat16,
-                        device_map="cuda:0" if torch.cuda.is_available() else "cpu",
+                        dtype=get_dtype(),
+                        device_map=get_device(),
                         low_cpu_mem_usage=self.user_config.get("low_cpu_mem_usage", False)
                     )
 
@@ -242,8 +242,11 @@ class TTSManager:
                     warnings.filterwarnings("ignore", category=FutureWarning, message=".*torch.cuda.amp.autocast.*")
                     from zipvoice.luxvoice import LuxTTS
 
-                    if torch.cuda.is_available():
+                    device = get_device()
+                    if device.startswith("cuda"):
                         self._luxtts_model = LuxTTS("YatharthS/LuxTTS", device="cuda")
+                    elif device == "mps":
+                        self._luxtts_model = LuxTTS("YatharthS/LuxTTS", device="mps")
                     else:
                         threads = int(self.user_config.get("luxtts_cpu_threads", 2))
                         self._luxtts_model = LuxTTS(
@@ -295,8 +298,8 @@ class TTSManager:
             freed.append("LuxTTS")
 
         if freed:
-            empty_cuda_cache()
-            print(f"🗑️ Unloaded TTS models: {', '.join(freed)}")
+            empty_device_cache()
+            print(f"Unloaded TTS models: {', '.join(freed)}")
 
         return bool(freed)
 
@@ -332,9 +335,7 @@ class TTSManager:
         if seed < 0:
             seed = random.randint(0, 2147483647)
 
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
+        set_seed(seed)
 
         # Load model
         model = self.get_qwen3_voice_design()
@@ -392,9 +393,7 @@ class TTSManager:
         if seed < 0:
             seed = random.randint(0, 2147483647)
 
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
+        set_seed(seed)
 
         # Load model
         model = self.get_qwen3_custom_voice(model_size)
@@ -467,16 +466,14 @@ class TTSManager:
         if seed < 0:
             seed = random.randint(0, 2147483647)
 
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
+        set_seed(seed)
 
         if user_config is None:
             user_config = {}
 
         # Determine device and dtype
-        device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
+        device = get_device()
+        dtype = get_dtype(device)
 
         # Load the trained model checkpoint with attention fallback
         mechanisms = get_attention_implementation(
@@ -540,7 +537,7 @@ class TTSManager:
                 model.model.speaker_encoder = base_model.model.speaker_encoder
                 model.model.speaker_encoder_sample_rate = base_model.model.speaker_encoder_sample_rate
                 del base_model
-                torch.cuda.empty_cache()
+                empty_device_cache()
                 print("Speaker encoder transplanted successfully")
 
             # Create voice clone prompt with ICL (not x-vector only)
@@ -632,9 +629,7 @@ class TTSManager:
         if seed < 0:
             seed = random.randint(0, 2147483647)
 
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
+        set_seed(seed)
 
         # Load BASE model (not CustomVoice - Base supports voice cloning)
         model = self.get_qwen3_base(model_size)
@@ -703,9 +698,7 @@ class TTSManager:
         if seed < 0:
             seed = random.randint(0, 2147483647)
 
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
+        set_seed(seed)
 
         # Load model
         model = self.get_vibevoice_tts(model_size)
@@ -744,7 +737,7 @@ class TTSManager:
         )
 
         # Move to device
-        device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        device = get_device()
         for k, v in inputs.items():
             if torch.is_tensor(v):
                 inputs[k] = v.to(device)
@@ -1086,9 +1079,7 @@ class TTSManager:
         if seed < 0:
             seed = random.randint(0, 2147483647)
 
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
+        set_seed(seed)
 
         # Get or create encoded prompt (with caching)
         encoded_prompt, was_cached = self.get_or_create_luxtts_prompt(

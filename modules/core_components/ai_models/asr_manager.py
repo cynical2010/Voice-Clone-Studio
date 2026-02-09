@@ -10,7 +10,7 @@ from typing import Dict, Optional
 
 from .model_utils import (
     get_device, get_dtype, get_attention_implementation,
-    check_model_available_locally, empty_cuda_cache, log_gpu_memory
+    check_model_available_locally, empty_device_cache, log_gpu_memory
 )
 
 
@@ -134,8 +134,7 @@ class ASRManager:
             self._whisper_model = None
             import gc, torch
             gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            empty_device_cache()
 
         self._check_and_unload_if_different("whisper_asr")
 
@@ -299,7 +298,7 @@ class ASRManager:
         if self._qwen3_aligner_model is not None:
             del self._qwen3_aligner_model
             self._qwen3_aligner_model = None
-            empty_cuda_cache()
+            empty_device_cache()
             print("Qwen3 ForcedAligner unloaded")
 
     def get_vibevoice_asr(self):
@@ -466,8 +465,8 @@ class ASRManager:
             freed.append("Qwen3 ForcedAligner")
 
         if freed:
-            empty_cuda_cache()
-            print(f"🗑️ Unloaded ASR models: {', '.join(freed)}")
+            empty_device_cache()
+            print(f"Unloaded ASR models: {', '.join(freed)}")
 
         return bool(freed)
 

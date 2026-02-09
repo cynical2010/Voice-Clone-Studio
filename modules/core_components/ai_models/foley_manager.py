@@ -10,7 +10,7 @@ import sys
 import torch
 from pathlib import Path
 
-from .model_utils import get_device, empty_cuda_cache
+from .model_utils import get_device, get_dtype, empty_device_cache
 
 
 # MMAudio model configurations
@@ -245,7 +245,7 @@ class FoleyManager:
             progress_callback(0.3, "Loading MMAudio network...")
 
         device = get_device()
-        dtype = torch.bfloat16
+        dtype = get_dtype(device)
 
         # Load the flow prediction network
         from mmaudio.model.networks import get_my_mmaudio
@@ -501,7 +501,7 @@ class FoleyManager:
         self._current_mode = None
 
         gc.collect()
-        empty_cuda_cache()
+        empty_device_cache()
         print("MMAudio models unloaded")
 
 

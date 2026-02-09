@@ -85,19 +85,30 @@ sys.path.insert(0, str(Path(__file__).parent / "modules"))
 _user_config = load_config()
 
 # Check which engines are available before building UI
-from modules.core_components.constants import check_engine_availability
-print()
-print("=" * 50)
-print("Checking available engines...")
-print("=" * 50)
-check_engine_availability(
-    _user_config,
-    save_config_fn=lambda key, value: save_config(_user_config, key, value)
-)
-print("=" * 50)
-print()
+if _user_config.get("skip_engine_check", False):
+    print("\nSkipping engine availability check (skip_engine_check enabled)\n")
+else:
+    from modules.core_components.constants import check_engine_availability
+    print()
+    print("=" * 50)
+    print("Checking available engines...")
+    print("=" * 50)
+    check_engine_availability(
+        _user_config,
+        save_config_fn=lambda key, value: save_config(_user_config, key, value)
+    )
+    print("=" * 50)
+    print()
 
 _active_emotions = load_emotions_from_config(_user_config)
+
+# On macOS (MPS), training requires CUDA — auto-disable Train Model tab
+import platform
+if platform.system() == "Darwin":
+    if "enabled_tools" not in _user_config:
+        _user_config["enabled_tools"] = {}
+    _user_config["enabled_tools"]["Train Model"] = False
+    print("macOS detected: Train Model tab disabled (requires CUDA)")
 
 # Ensure config has emotions key set (emotion_manager expects it)
 if 'emotions' not in _user_config or _user_config['emotions'] is None:

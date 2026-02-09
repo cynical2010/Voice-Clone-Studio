@@ -745,9 +745,8 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
         if hasattr(get_deepfilter_lazy, '_model_cache'):
             del get_deepfilter_lazy._model_cache
             try:
-                import torch
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                from modules.core_components.ai_models.model_utils import empty_device_cache
+                empty_device_cache()
             except ImportError:
                 pass
             import gc

@@ -18,6 +18,7 @@ import random
 import re
 from datetime import datetime
 from pathlib import Path
+from modules.core_components.ai_models.model_utils import set_seed, get_device
 from textwrap import dedent
 
 from modules.core_components.tool_base import Tool, ToolConfig
@@ -686,9 +687,7 @@ class ConversationTool(Tool):
                 seed = int(seed) if seed is not None else -1
                 if seed < 0:
                     seed = random.randint(0, 2147483647)
-                torch.manual_seed(seed)
-                if torch.cuda.is_available():
-                    torch.cuda.manual_seed_all(seed)
+                set_seed(seed)
 
                 progress(0.1, desc=f"Loading CustomVoice model ({model_size})...")
                 model = tts_manager.get_qwen3_custom_voice(model_size)
@@ -849,9 +848,7 @@ class ConversationTool(Tool):
                 seed = int(seed) if seed is not None else -1
                 if seed < 0:
                     seed = random.randint(0, 2147483647)
-                torch.manual_seed(seed)
-                if torch.cuda.is_available():
-                    torch.cuda.manual_seed_all(seed)
+                set_seed(seed)
 
                 progress(0.1, desc=f"Loading Base model ({model_size})...")
                 model = tts_manager.get_qwen3_base(model_size)
@@ -1001,9 +998,7 @@ class ConversationTool(Tool):
                 seed = int(seed) if seed is not None else -1
                 if seed < 0:
                     seed = random.randint(0, 2147483647)
-                torch.manual_seed(seed)
-                if torch.cuda.is_available():
-                    torch.cuda.manual_seed_all(seed)
+                set_seed(seed)
 
                 progress(0.1, desc=f"Loading VibeVoice TTS ({model_size})...")
                 model = tts_manager.get_vibevoice_tts(model_size)
@@ -1083,7 +1078,7 @@ class ConversationTool(Tool):
                 )
 
                 # Move to device
-                device = "cuda:0" if torch.cuda.is_available() else "cpu"
+                device = get_device()
                 for k, v in inputs.items():
                     if torch.is_tensor(v):
                         inputs[k] = v.to(device)
@@ -1203,9 +1198,7 @@ class ConversationTool(Tool):
                 seed = int(seed) if seed is not None else -1
                 if seed < 0:
                     seed = random.randint(0, 2147483647)
-                torch.manual_seed(seed)
-                if torch.cuda.is_available():
-                    torch.cuda.manual_seed_all(seed)
+                set_seed(seed)
 
                 progress(0.05, desc="Loading LuxTTS model...")
                 tts_manager.get_luxtts()

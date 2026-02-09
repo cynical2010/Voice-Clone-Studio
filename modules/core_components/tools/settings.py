@@ -94,6 +94,12 @@ class SettingsTool(Tool):
                                     info="Auto = fastest available."
                                 )
 
+                                components['settings_skip_engine_check'] = gr.Checkbox(
+                                    label="Skip Engine Check at Startup",
+                                    value=_user_config.get("skip_engine_check", False),
+                                    info="Assumes all engines are available. Faster launch. (Restart required)"
+                                )
+
                             with gr.Column():
                                 gr.Markdown("### Model Downloading")
                                 components['settings_offline_mode'] = gr.Checkbox(
@@ -316,6 +322,13 @@ class SettingsTool(Tool):
         components['settings_offline_mode'].change(
             lambda x: save_preference("offline_mode", x),
             inputs=[components['settings_offline_mode']],
+            outputs=[]
+        )
+
+        # Save skip engine check setting
+        components['settings_skip_engine_check'].change(
+            lambda x: save_preference("skip_engine_check", x),
+            inputs=[components['settings_skip_engine_check']],
             outputs=[]
         )
 

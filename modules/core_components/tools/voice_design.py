@@ -18,6 +18,7 @@ import random
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from modules.core_components.ai_models.model_utils import set_seed
 
 from modules.core_components.tool_base import Tool, ToolConfig
 from modules.core_components.ai_models.tts_manager import get_tts_manager
@@ -136,9 +137,7 @@ class VoiceDesignTool(Tool):
                 if seed < 0:
                     seed = random.randint(0, 2147483647)
 
-                torch.manual_seed(seed)
-                if torch.cuda.is_available():
-                    torch.cuda.manual_seed_all(seed)
+                set_seed(seed)
                 seed_msg = f"Seed: {seed}"
 
                 progress(0.1, desc="Loading VoiceDesign model...")
