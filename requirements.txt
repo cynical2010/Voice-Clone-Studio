@@ -2,6 +2,7 @@
 # Supports Windows, Linux, and macOS with platform-specific packages
 
 # Core TTS and audio processing dependencies (all platforms)
+numpy==1.26.4
 qwen-tts
 librosa
 torchaudio
@@ -10,7 +11,7 @@ sox
 einops
 huggingface_hub
 onnxruntime
-onnxruntime-gpu
+onnxruntime-gpu; sys_platform != 'darwin'
 
 # Web UI and utilities
 gradio
@@ -24,7 +25,6 @@ open_clip_torch
 torchdiffeq
 timm
 colorlog
-opencv-python
 omegaconf
 
 # LuxTTS voice cloning (optional - install via setup script or manually)

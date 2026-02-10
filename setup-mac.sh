@@ -30,9 +30,6 @@ else
 fi
 echo ""
 
-echo "Note: openai-whisper is not installed on macOS (compatibility issues)"
-echo "   VibeVoice ASR or Qwen3 ASR will be used for transcription instead"
-echo ""
 echo "Note: Model training is not supported on macOS"
 echo "   The Train Model tab will be automatically hidden"
 echo ""
@@ -57,6 +54,16 @@ echo "========================================="
 echo ""
 read -t 30 -p "Install Qwen3 ASR? (y/N, default N in 30s): " INSTALL_QWEN3ASR
 INSTALL_QWEN3ASR=${INSTALL_QWEN3ASR:-N}
+echo ""
+
+echo "========================================="
+echo "Optional: Install Whisper speech recognition?"
+echo "OpenAI Whisper is an alternative transcription engine."
+echo "Supports automatic splitting of clips with no length limit."
+echo "========================================="
+echo ""
+read -t 30 -p "Install Whisper? (y/N, default N in 30s): " INSTALL_WHISPER
+INSTALL_WHISPER=${INSTALL_WHISPER:-N}
 echo ""
 echo "All questions answered - installing now..."
 echo ""
@@ -187,6 +194,19 @@ if [[ "$INSTALL_QWEN3ASR" =~ ^[Yy]$ ]]; then
     fi
 else
     echo "Skipping Qwen3 ASR installation."
+fi
+
+# Whisper
+if [[ "$INSTALL_WHISPER" =~ ^[Yy]$ ]]; then
+    echo ""
+    echo "Installing Whisper..."
+    if pip install openai-whisper; then
+        echo "Whisper installed successfully!"
+    else
+        echo "Whisper installation failed."
+    fi
+else
+    echo "Skipping Whisper installation."
 fi
 
 echo ""
