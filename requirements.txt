@@ -16,7 +16,6 @@ onnxruntime-gpu; sys_platform != 'darwin'
 # Web UI and utilities
 gradio
 gradio_filelister @ file:wheel/gradio_filelister-0.4.0-py3-none-any.whl
-numpy
 diffusers
 markdown
 
@@ -26,6 +25,7 @@ torchdiffeq
 timm
 colorlog
 omegaconf
+av>=14.0.1
 
 # LuxTTS voice cloning (optional - install via setup script or manually)
 # Prerequisites (install in order before zipvoice):
