@@ -1,5 +1,34 @@
 # Version History
 
+## February 11, 2026
+#### Version 1.6.0 - Chatterbox TTS & Voice Changer
+
+**Chatterbox TTS (Resemble AI)**
+- **New TTS Engine** - Integrated Chatterbox TTS (MIT license) for voice cloning with a single reference sample
+- **23 Languages** - English uses the fast default model; other languages auto-switch to the Multilingual model
+- **Voice Clone Support** - Added Chatterbox as a Voice Clone engine with exaggeration, CFG weight, temperature, repetition penalty, and top-p controls
+- **Conversation Support** - Chatterbox available as a Conversation engine with up to 8 speakers, sequential per-line generation, and configurable pauses
+
+**Voice Changer**
+- **New Voice Changer Tool** - Convert any audio to match a target voice using Chatterbox voice conversion
+- **Target Voice Selector** - Browse and preview voice samples from your samples folder
+- **Source Audio Input** - Upload audio files or record directly from microphone
+- **Save to Samples** - Save converted audio directly to your samples folder for use with other tools
+
+**Conversation Tool Improvements**
+- **Shared Voice Sample Dropdowns** - Consolidated duplicate per-engine dropdowns into a single shared set of 8, reducing UI bloat
+- **Smart Speaker Limit** - Rows 5-8 automatically hidden when using VibeVoice (4 speaker limit)
+
+**Chatterbox Multilingual Fixes**
+- **Truncation Fix** - Increased max generation tokens from 1000 to 2048 (~80 seconds max vs ~40 seconds)
+- **Premature EOS Fix** - Fixed AlignmentStreamAnalyzer cutting audio short by requiring minimum speech frames before allowing completion
+- **macOS Compatibility** - Added MPS/CPU support with proper device mapping and MPS availability checks
+
+**Other Improvements**
+- **Python 3.10-3.12 Enforcement** - Setup scripts now auto-discover compatible Python versions and block 3.13+
+- **Flash Attention Install** - Added Flash Attention 2 install option to setup-windows.bat
+- **Prep Audio Cache Fix** - Delete and clear cache now also remove LuxTTS `.pt` cache files
+
 ## February 10, 2026
 #### Version 1.5.2 - Network Mode & Tweaks
 - **Sentence Per Chunk**  - To prevent VibeVoice from going off the rail, we add the option of resetting after a certain amount of Sentences.

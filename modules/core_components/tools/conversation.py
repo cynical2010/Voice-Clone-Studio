@@ -63,9 +63,10 @@ class ConversationTool(Tool):
             "VibeVoice": "VibeVoice",
             "Qwen Base": "Qwen3",
             "Qwen Speakers": "Qwen3",
+            "Chatterbox": "Chatterbox",
             "LuxTTS": "LuxTTS",
         }
-        ALL_CONV_CHOICES = ["VibeVoice", "Qwen Base", "Qwen Speakers", "LuxTTS"]
+        ALL_CONV_CHOICES = ["VibeVoice", "Qwen Base", "Qwen Speakers", "Chatterbox", "LuxTTS"]
 
         # Filter conversation choices based on enabled engines
         engine_settings = _user_config.get("enabled_engines", {})
@@ -87,6 +88,7 @@ class ConversationTool(Tool):
         is_qwen_base = initial_conv_model == "Qwen Base"
         is_qwen_custom = initial_conv_model == "Qwen Speakers"
         is_luxtts = initial_conv_model == "LuxTTS"
+        is_chatterbox = initial_conv_model == "Chatterbox"
 
         with gr.TabItem("Conversation") as conv_tab:
             components['conv_tab'] = conv_tab
@@ -147,21 +149,22 @@ class ConversationTool(Tool):
                         visible=is_qwen_custom
                     )
 
-                    # Qwen Base voice sample selectors
-                    components['qwen_base_voices_section'] = gr.Column(visible=is_qwen_base)
-                    with components['qwen_base_voices_section']:
+                    # Shared voice sample selectors (used by Qwen Base, LuxTTS, Chatterbox, VibeVoice)
+                    uses_samples = is_qwen_base or is_luxtts or is_chatterbox or is_vibevoice
+                    components['shared_voices_section'] = gr.Column(visible=uses_samples)
+                    with components['shared_voices_section']:
                         gr.Markdown("### Voice Samples (Up to 8 Speakers)")
 
                         with gr.Row():
                             with gr.Column():
-                                components['qwen_voice_sample_1'] = gr.Dropdown(
+                                components['conv_voice_1'] = gr.Dropdown(
                                     choices=conversation_available_samples,
                                     value=conversation_first_sample,
                                     label="[1] Voice Sample",
                                     info="Select from your prepared samples"
                                 )
                             with gr.Column():
-                                components['qwen_voice_sample_2'] = gr.Dropdown(
+                                components['conv_voice_2'] = gr.Dropdown(
                                     choices=conversation_available_samples,
                                     value=conversation_first_sample,
                                     label="[2] Voice Sample",
@@ -170,163 +173,54 @@ class ConversationTool(Tool):
 
                         with gr.Row():
                             with gr.Column():
-                                components['qwen_voice_sample_3'] = gr.Dropdown(
+                                components['conv_voice_3'] = gr.Dropdown(
                                     choices=conversation_available_samples,
                                     value=conversation_first_sample,
                                     label="[3] Voice Sample",
                                     info="Select from your prepared samples"
                                 )
                             with gr.Column():
-                                components['qwen_voice_sample_4'] = gr.Dropdown(
+                                components['conv_voice_4'] = gr.Dropdown(
                                     choices=conversation_available_samples,
                                     value=conversation_first_sample,
                                     label="[4] Voice Sample",
                                     info="Select from your prepared samples"
                                 )
 
-                        with gr.Row():
+                        # Rows 5-8 hidden for VibeVoice (only supports 4 speakers)
+                        components['conv_voices_row_5_6'] = gr.Row(visible=not is_vibevoice)
+                        with components['conv_voices_row_5_6']:
                             with gr.Column():
-                                components['qwen_voice_sample_5'] = gr.Dropdown(
+                                components['conv_voice_5'] = gr.Dropdown(
                                     choices=conversation_available_samples,
                                     value=conversation_first_sample,
                                     label="[5] Voice Sample",
                                     info="Select from your prepared samples"
                                 )
                             with gr.Column():
-                                components['qwen_voice_sample_6'] = gr.Dropdown(
+                                components['conv_voice_6'] = gr.Dropdown(
                                     choices=conversation_available_samples,
                                     value=conversation_first_sample,
                                     label="[6] Voice Sample",
                                     info="Select from your prepared samples"
                                 )
 
-                        with gr.Row():
+                        components['conv_voices_row_7_8'] = gr.Row(visible=not is_vibevoice)
+                        with components['conv_voices_row_7_8']:
                             with gr.Column():
-                                components['qwen_voice_sample_7'] = gr.Dropdown(
+                                components['conv_voice_7'] = gr.Dropdown(
                                     choices=conversation_available_samples,
                                     value=conversation_first_sample,
                                     label="[7] Voice Sample",
                                     info="Select from your prepared samples"
                                 )
                             with gr.Column():
-                                components['qwen_voice_sample_8'] = gr.Dropdown(
+                                components['conv_voice_8'] = gr.Dropdown(
                                     choices=conversation_available_samples,
                                     value=conversation_first_sample,
                                     label="[8] Voice Sample",
                                     info="Select from your prepared samples"
                                 )
-
-                        components['refresh_qwen_samples_btn'] = gr.Button("Refresh Voice Samples", size="md", visible=False)
-
-                    # LuxTTS voice sample selectors (reuse same layout as Qwen Base)
-                    components['luxtts_voices_section'] = gr.Column(visible=is_luxtts)
-                    with components['luxtts_voices_section']:
-                        gr.Markdown("### Voice Samples (Up to 8 Speakers)")
-
-                        with gr.Row():
-                            with gr.Column():
-                                components['luxtts_voice_sample_1'] = gr.Dropdown(
-                                    choices=conversation_available_samples,
-                                    value=conversation_first_sample,
-                                    label="[1] Voice Sample",
-                                    info="Select from your prepared samples"
-                                )
-                            with gr.Column():
-                                components['luxtts_voice_sample_2'] = gr.Dropdown(
-                                    choices=conversation_available_samples,
-                                    value=conversation_first_sample,
-                                    label="[2] Voice Sample",
-                                    info="Select from your prepared samples"
-                                )
-
-                        with gr.Row():
-                            with gr.Column():
-                                components['luxtts_voice_sample_3'] = gr.Dropdown(
-                                    choices=conversation_available_samples,
-                                    value=conversation_first_sample,
-                                    label="[3] Voice Sample",
-                                    info="Select from your prepared samples"
-                                )
-                            with gr.Column():
-                                components['luxtts_voice_sample_4'] = gr.Dropdown(
-                                    choices=conversation_available_samples,
-                                    value=conversation_first_sample,
-                                    label="[4] Voice Sample",
-                                    info="Select from your prepared samples"
-                                )
-
-                        with gr.Row():
-                            with gr.Column():
-                                components['luxtts_voice_sample_5'] = gr.Dropdown(
-                                    choices=conversation_available_samples,
-                                    value=conversation_first_sample,
-                                    label="[5] Voice Sample",
-                                    info="Select from your prepared samples"
-                                )
-                            with gr.Column():
-                                components['luxtts_voice_sample_6'] = gr.Dropdown(
-                                    choices=conversation_available_samples,
-                                    value=conversation_first_sample,
-                                    label="[6] Voice Sample",
-                                    info="Select from your prepared samples"
-                                )
-
-                        with gr.Row():
-                            with gr.Column():
-                                components['luxtts_voice_sample_7'] = gr.Dropdown(
-                                    choices=conversation_available_samples,
-                                    value=conversation_first_sample,
-                                    label="[7] Voice Sample",
-                                    info="Select from your prepared samples"
-                                )
-                            with gr.Column():
-                                components['luxtts_voice_sample_8'] = gr.Dropdown(
-                                    choices=conversation_available_samples,
-                                    value=conversation_first_sample,
-                                    label="[8] Voice Sample",
-                                    info="Select from your prepared samples"
-                                )
-
-                        components['refresh_luxtts_samples_btn'] = gr.Button("Refresh Voice Samples", size="md", visible=False)
-
-                    # VibeVoice voice sample selectors
-                    components['vibevoice_voices_section'] = gr.Column(visible=is_vibevoice)
-                    with components['vibevoice_voices_section']:
-                        gr.Markdown("### Voice Samples (Up to 4 Speakers)")
-
-                        with gr.Row():
-                            with gr.Column():
-                                components['voice_sample_1'] = gr.Dropdown(
-                                    choices=conversation_available_samples,
-                                    value=conversation_first_sample,
-                                    label="[1] Voice Sample",
-                                    info="Select from your prepared samples"
-                                )
-                            with gr.Column():
-                                components['voice_sample_2'] = gr.Dropdown(
-                                    choices=conversation_available_samples,
-                                    value=conversation_first_sample,
-                                    label="[2] Voice Sample",
-                                    info="Select from your prepared samples"
-                                )
-
-                        with gr.Row():
-                            with gr.Column():
-                                components['voice_sample_3'] = gr.Dropdown(
-                                    choices=conversation_available_samples,
-                                    value=conversation_first_sample,
-                                    label="[3] Voice Sample",
-                                    info="Select from your prepared samples"
-                                )
-                            with gr.Column():
-                                components['voice_sample_4'] = gr.Dropdown(
-                                    choices=conversation_available_samples,
-                                    value=conversation_first_sample,
-                                    label="[4] Voice Sample",
-                                    info="Select from your prepared samples"
-                                )
-
-                        components['refresh_conv_samples_btn'] = gr.Button("Refresh Voice Samples", size="md", visible=False)
 
                 # Right - Settings and output
                 with gr.Column(scale=1):
@@ -354,8 +248,16 @@ class ConversationTool(Tool):
 
                     # Shared Language and Seed
                     is_qwen_initial = is_qwen_base or is_qwen_custom
-                    initial_lang_choices = LANGUAGES if is_qwen_initial else ["Auto"]
-                    initial_lang_value = _user_config.get("language", "Auto") if is_qwen_initial else "Auto"
+                    from modules.core_components.constants import CHATTERBOX_LANGUAGES
+                    if is_qwen_initial:
+                        initial_lang_choices = LANGUAGES
+                        initial_lang_value = _user_config.get("language", "Auto")
+                    elif is_chatterbox:
+                        initial_lang_choices = CHATTERBOX_LANGUAGES
+                        initial_lang_value = "English"
+                    else:
+                        initial_lang_choices = ["Auto"]
+                        initial_lang_value = "Auto"
                     with gr.Column():
                         with gr.Row():
                             components['conv_language'] = gr.Dropdown(
@@ -420,6 +322,28 @@ class ConversationTool(Tool):
                                     label="After Hyphen (-)",
                                     info="Pause after hyphens"
                                 )
+
+                    # Chatterbox-specific settings
+                    components['cb_settings'] = gr.Column(visible=is_chatterbox)
+                    with components['cb_settings']:
+                        # Pause between lines
+                        components['cb_pause_linebreak'] = gr.Slider(
+                            minimum=0.0,
+                            maximum=3.0,
+                            value=0.25,
+                            step=0.05,
+                            label="Pause Between Lines",
+                            info="Silence between each speaker turn"
+                        )
+
+                        # Chatterbox Advanced Parameters
+                        create_chatterbox_advanced_params = shared_state['create_chatterbox_advanced_params']
+                        cb_conv_params = create_chatterbox_advanced_params(visible=True)
+                        components['cb_conv_exaggeration'] = cb_conv_params['exaggeration']
+                        components['cb_conv_cfg_weight'] = cb_conv_params['cfg_weight']
+                        components['cb_conv_temperature'] = cb_conv_params['temperature']
+                        components['cb_conv_repetition_penalty'] = cb_conv_params['repetition_penalty']
+                        components['cb_conv_top_p'] = cb_conv_params['top_p']
 
                     # LuxTTS-specific settings
                     components['luxtts_settings'] = gr.Column(visible=is_luxtts)
@@ -567,6 +491,23 @@ class ConversationTool(Tool):
                         container=True,
                         padding=True,
                         visible=is_luxtts
+                    )
+
+                    chatterbox_tips_text = dedent("""\
+                    **Chatterbox Tips:**
+                    - Up to 8 speakers with custom voice samples
+                    - English uses fast default TTS model
+                    - Other languages use Multilingual model (23 languages)
+                    - Sequential generation: each line generated then stitched
+                    - Exaggeration controls emotion intensity (0=neutral, 2=max)
+                    - No text transcript needed for voice samples
+                    """)
+
+                    components['cb_tips'] = gr.HTML(
+                        value=format_help_html(chatterbox_tips_text),
+                        container=True,
+                        padding=True,
+                        visible=is_chatterbox
                     )
 
             return components
@@ -1359,13 +1300,178 @@ class ConversationTool(Tool):
                 print(f"Error in generate_luxtts_conversation_handler:\n{traceback.format_exc()}")
                 return None, f"Error generating LuxTTS conversation: {str(e)}"
 
+        def generate_chatterbox_conversation_handler(
+            conversation_data, voice_samples_dict,
+            pause_linebreak, language, seed,
+            exaggeration, cfg_weight, temperature, repetition_penalty, top_p,
+            progress=gr.Progress()
+        ):
+            """Generate multi-speaker conversation with Chatterbox voice cloning.
+
+            Each line is generated sequentially with per-speaker voice samples,
+            then stitched together with configurable pauses between speaker turns.
+            English uses the fast default model; other languages use Multilingual.
+            """
+            if not conversation_data or not conversation_data.strip():
+                return None, "Error: Please enter conversation lines."
+
+            if not voice_samples_dict:
+                return None, "Error: Please select at least one voice sample."
+
+            conversation_data = preprocess_conversation_script(conversation_data)
+
+            try:
+                from modules.core_components.constants import CHATTERBOX_LANG_TO_CODE
+
+                # Parse lines
+                lines = []
+                for line in conversation_data.strip().split('\n'):
+                    line = line.strip()
+                    if not line or ':' not in line:
+                        continue
+
+                    if line.startswith('[') and ']' in line:
+                        bracket_end = line.index(']')
+                        bracket_content = line[1:bracket_end].strip()
+                        text = line[bracket_end + 1:].lstrip(':').strip()
+
+                        if bracket_content.isdigit():
+                            speaker_num = int(bracket_content)
+                            if 1 <= speaker_num <= 8:
+                                speaker_key = f"Speaker{speaker_num}"
+                                if speaker_key in voice_samples_dict and text:
+                                    sample_data = voice_samples_dict[speaker_key]
+                                    lines.append((speaker_key, sample_data["wav_path"], sample_data.get("name", speaker_key), text))
+
+                if not lines:
+                    return None, "Error: No valid conversation lines found. Use format: [N]: Text (N=1-8)"
+
+                # Set seed
+                seed = int(seed) if seed is not None else -1
+                if seed < 0:
+                    seed = random.randint(0, 2147483647)
+                set_seed(seed)
+
+                # Determine if multilingual
+                lang_code = CHATTERBOX_LANG_TO_CODE.get(language, "en")
+                use_multilingual = lang_code != "en"
+                model_label = "Multilingual" if use_multilingual else "Default"
+
+                if use_multilingual:
+                    progress(0.05, desc="Loading Chatterbox Multilingual...")
+                    tts_manager.get_chatterbox_multilingual()
+                else:
+                    progress(0.05, desc="Loading Chatterbox TTS...")
+                    tts_manager.get_chatterbox_tts()
+
+                # Generate all segments
+                all_segments = []
+                sr = 24000
+
+                for i, (speaker_key, wav_path, sample_name, text) in enumerate(lines):
+                    progress_val = 0.1 + (0.8 * i / len(lines))
+
+                    # Strip any (style) markers
+                    clean_text, _ = extract_style_instructions(text)
+                    if not clean_text.strip():
+                        continue
+
+                    progress(progress_val, desc=f"Line {i + 1}/{len(lines)} ({speaker_key})")
+
+                    if use_multilingual:
+                        audio_data, audio_sr = tts_manager.generate_voice_clone_chatterbox_multilingual(
+                            text=clean_text,
+                            language_code=lang_code,
+                            voice_sample_path=wav_path,
+                            seed=seed,
+                            exaggeration=exaggeration,
+                            cfg_weight=cfg_weight,
+                            temperature=temperature,
+                            repetition_penalty=repetition_penalty,
+                            top_p=top_p,
+                        )
+                    else:
+                        audio_data, audio_sr = tts_manager.generate_voice_clone_chatterbox(
+                            text=clean_text,
+                            voice_sample_path=wav_path,
+                            seed=seed,
+                            exaggeration=exaggeration,
+                            cfg_weight=cfg_weight,
+                            temperature=temperature,
+                            repetition_penalty=repetition_penalty,
+                            top_p=top_p,
+                        )
+
+                    sr = audio_sr  # Should be 24000
+
+                    # Add segment with linebreak pause after (except last line)
+                    line_pause = pause_linebreak if i < len(lines) - 1 else 0.0
+                    all_segments.append((audio_data, line_pause))
+
+                if not all_segments:
+                    return None, "Error: No audio segments generated."
+
+                # Concatenate
+                progress(0.9, desc="Stitching conversation...")
+                conversation_audio = []
+                for wav, pause_duration in all_segments:
+                    conversation_audio.append(wav)
+                    if pause_duration > 0:
+                        pause_samples = int(sr * pause_duration)
+                        conversation_audio.append(np.zeros(pause_samples))
+
+                # Add short tail silence
+                conversation_audio.append(np.zeros(int(sr * 0.15)))
+
+                final_audio = np.concatenate(conversation_audio)
+
+                # Save
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_file = OUTPUT_DIR / f"conversation_chatterbox_{timestamp}.wav"
+                sf.write(str(output_file), final_audio, sr)
+
+                # Save metadata
+                metadata_file = output_file.with_suffix(".txt")
+                speakers_used = list(set(k for k, _, _, _ in lines))
+                metadata = dedent(f"""\
+                    Generated: {timestamp}
+                    Type: Chatterbox Conversation
+                    Model: {model_label}
+                    Language: {language}
+                    Seed: {seed}
+                    Sample Rate: {sr}Hz
+                    Pause Between Lines: {pause_linebreak}s
+                    Exaggeration: {exaggeration} | CFG Weight: {cfg_weight}
+                    Temperature: {temperature} | Repetition Penalty: {repetition_penalty} | Top-p: {top_p}
+                    Speakers: {', '.join(speakers_used)}
+                    Lines: {len(lines)}
+                    Segments: {len(all_segments)}
+
+                    --- Script ---
+                    {conversation_data.strip()}
+                    """)
+                metadata_out = '\n'.join(line.lstrip() for line in metadata.lstrip().splitlines())
+                metadata_file.write_text(metadata_out, encoding="utf-8")
+
+                progress(1.0, desc="Done!")
+                duration = len(final_audio) / sr
+                if play_completion_beep:
+                    play_completion_beep()
+                return str(output_file), f"Conversation saved: {output_file.name}\n{len(lines)} lines | {duration:.1f}s | Seed: {seed} | Chatterbox {model_label}"
+
+            except Exception as e:
+                import traceback
+                print(f"Error in generate_chatterbox_conversation_handler:\n{traceback.format_exc()}")
+                return None, f"Error generating Chatterbox conversation: {str(e)}"
+
         def unified_conversation_generate(
             model_type, script,
+            # Shared voice samples (used by all sample-based engines)
+            sv1, sv2, sv3, sv4, sv5, sv6, sv7, sv8,
             # Qwen Speakers params
             qwen_custom_pause_linebreak, qwen_custom_pause_period, qwen_custom_pause_comma,
             qwen_custom_pause_question, qwen_custom_pause_hyphen, qwen_custom_model_size,
             # Qwen Base params
-            qwen_base_v1, qwen_base_v2, qwen_base_v3, qwen_base_v4, qwen_base_v5, qwen_base_v6, qwen_base_v7, qwen_base_v8,
             qwen_base_pause_linebreak, qwen_base_pause_period, qwen_base_pause_comma, qwen_base_pause_question,
             qwen_base_pause_hyphen, qwen_base_model_size,
             # Shared Qwen params
@@ -1373,19 +1479,23 @@ class ConversationTool(Tool):
             # Qwen advanced params
             qwen_do_sample, qwen_temperature, qwen_top_k, qwen_top_p, qwen_repetition_penalty, qwen_max_new_tokens,
             # VibeVoice params
-            vv_v1, vv_v2, vv_v3, vv_v4, vv_model_size, vv_cfg,
+            vv_model_size, vv_cfg,
             # VibeVoice advanced params
             vv_num_steps, vv_do_sample, vv_temperature, vv_top_k, vv_top_p, vv_repetition_penalty,
             vv_sentences_per_chunk,
             # LuxTTS params
-            lux_v1, lux_v2, lux_v3, lux_v4, lux_v5, lux_v6, lux_v7, lux_v8,
             lux_pause_linebreak,
             lux_num_steps, lux_t_shift, lux_speed, lux_guidance_scale,
             lux_rms, lux_ref_duration, lux_return_smooth,
+            # Chatterbox params
+            cb_pause_linebreak,
+            cb_exaggeration, cb_cfg_weight, cb_temperature, cb_repetition_penalty, cb_top_p,
             # Shared
             seed, progress=gr.Progress()
         ):
             """Route to appropriate generation function based on model type."""
+            voice_samples = prepare_voice_samples_dict(sv1, sv2, sv3, sv4, sv5, sv6, sv7, sv8)
+
             if model_type == "Qwen Speakers":
                 qwen_size = "1.7B" if qwen_custom_model_size == "Large" else "0.6B"
                 return generate_conversation_handler(script, qwen_custom_pause_linebreak, qwen_custom_pause_period,
@@ -1395,10 +1505,6 @@ class ConversationTool(Tool):
                                                      qwen_repetition_penalty, qwen_max_new_tokens, progress)
             elif model_type == "Qwen Base":
                 qwen_size = "1.7B" if qwen_base_model_size == "Large" else "0.6B"
-                voice_samples = prepare_voice_samples_dict(
-                    qwen_base_v1, qwen_base_v2, qwen_base_v3, qwen_base_v4,
-                    qwen_base_v5, qwen_base_v6, qwen_base_v7, qwen_base_v8
-                )
                 return generate_conversation_base_handler(script, voice_samples, qwen_base_pause_linebreak,
                                                           qwen_base_pause_period, qwen_base_pause_comma,
                                                           qwen_base_pause_question, qwen_base_pause_hyphen,
@@ -1407,14 +1513,15 @@ class ConversationTool(Tool):
                                                           qwen_repetition_penalty, qwen_max_new_tokens,
                                                           emotion_intensity, progress)
             elif model_type == "LuxTTS":
-                voice_samples = prepare_voice_samples_dict(
-                    lux_v1, lux_v2, lux_v3, lux_v4,
-                    lux_v5, lux_v6, lux_v7, lux_v8
-                )
                 return generate_luxtts_conversation_handler(script, voice_samples, lux_pause_linebreak,
                                                             seed, lux_num_steps, lux_t_shift, lux_speed,
                                                             lux_guidance_scale, lux_rms, lux_ref_duration,
                                                             lux_return_smooth, progress)
+            elif model_type == "Chatterbox":
+                return generate_chatterbox_conversation_handler(script, voice_samples, cb_pause_linebreak,
+                                                                qwen_lang, seed,
+                                                                cb_exaggeration, cb_cfg_weight, cb_temperature,
+                                                                cb_repetition_penalty, cb_top_p, progress)
             else:  # VibeVoice
                 if vv_model_size == "Small":
                     vv_size = "1.5B"
@@ -1422,7 +1529,6 @@ class ConversationTool(Tool):
                     vv_size = "Large (4-bit)"
                 else:
                     vv_size = "Large"
-                voice_samples = prepare_voice_samples_dict(vv_v1, vv_v2, vv_v3, vv_v4)
                 return generate_vibevoice_longform_handler(script, voice_samples, vv_size, vv_cfg, seed,
                                                            vv_num_steps, vv_do_sample, vv_temperature, vv_top_k,
                                                            vv_top_p, vv_repetition_penalty,
@@ -1433,12 +1539,13 @@ class ConversationTool(Tool):
             unified_conversation_generate,
             inputs=[
                 components['conv_model_type'], components['conversation_script'],
+                # Shared voice samples
+                components['conv_voice_1'], components['conv_voice_2'], components['conv_voice_3'], components['conv_voice_4'],
+                components['conv_voice_5'], components['conv_voice_6'], components['conv_voice_7'], components['conv_voice_8'],
                 # Qwen Speakers
                 components['conv_pause_linebreak'], components['conv_pause_period'], components['conv_pause_comma'],
                 components['conv_pause_question'], components['conv_pause_hyphen'], components['conv_model_size'],
                 # Qwen Base
-                components['qwen_voice_sample_1'], components['qwen_voice_sample_2'], components['qwen_voice_sample_3'], components['qwen_voice_sample_4'],
-                components['qwen_voice_sample_5'], components['qwen_voice_sample_6'], components['qwen_voice_sample_7'], components['qwen_voice_sample_8'],
                 components['conv_pause_linebreak'], components['conv_pause_period'], components['conv_pause_comma'],
                 components['conv_pause_question'], components['conv_pause_hyphen'], components['conv_base_model_size'],
                 # Shared Qwen
@@ -1447,18 +1554,19 @@ class ConversationTool(Tool):
                 components['qwen_conv_do_sample'], components['qwen_conv_temperature'], components['qwen_conv_top_k'], components['qwen_conv_top_p'],
                 components['qwen_conv_repetition_penalty'], components['qwen_conv_max_new_tokens'],
                 # VibeVoice
-                components['voice_sample_1'], components['voice_sample_2'], components['voice_sample_3'], components['voice_sample_4'],
                 components['longform_model_size'], components['longform_cfg_scale'],
                 # VibeVoice advanced params
                 components['vv_conv_num_steps'], components['vv_conv_do_sample'], components['vv_conv_temperature'], components['vv_conv_top_k'],
                 components['vv_conv_top_p'], components['vv_conv_repetition_penalty'],
                 components['vv_conv_sentences_per_chunk'],
                 # LuxTTS
-                components['luxtts_voice_sample_1'], components['luxtts_voice_sample_2'], components['luxtts_voice_sample_3'], components['luxtts_voice_sample_4'],
-                components['luxtts_voice_sample_5'], components['luxtts_voice_sample_6'], components['luxtts_voice_sample_7'], components['luxtts_voice_sample_8'],
                 components['luxtts_pause_linebreak'],
                 components['lux_conv_num_steps'], components['lux_conv_t_shift'], components['lux_conv_speed'], components['lux_conv_guidance_scale'],
                 components['lux_conv_rms'], components['lux_conv_ref_duration'], components['lux_conv_return_smooth'],
+                # Chatterbox
+                components['cb_pause_linebreak'],
+                components['cb_conv_exaggeration'], components['cb_conv_cfg_weight'], components['cb_conv_temperature'],
+                components['cb_conv_repetition_penalty'], components['cb_conv_top_p'],
                 # Shared
                 components['conv_seed']
             ],
@@ -1467,23 +1575,28 @@ class ConversationTool(Tool):
 
         # Toggle UI based on model selection
         def toggle_conv_ui(model_type):
+            from modules.core_components.constants import CHATTERBOX_LANGUAGES
             is_qwen_custom = model_type == "Qwen Speakers"
             is_qwen_base = model_type == "Qwen Base"
             is_vibevoice = model_type == "VibeVoice"
             is_luxtts = model_type == "LuxTTS"
+            is_chatterbox = model_type == "Chatterbox"
             is_qwen = is_qwen_custom or is_qwen_base
+            uses_samples = is_qwen_base or is_luxtts or is_chatterbox or is_vibevoice
 
-            # Language dropdown: full list for Qwen, Auto-only for VV/LuxTTS
+            # Language dropdown: full list for Qwen, Chatterbox languages for Chatterbox, Auto-only for VV/LuxTTS
             if is_qwen:
                 lang_update = gr.update(choices=LANGUAGES, value=LANGUAGES[0])
+            elif is_chatterbox:
+                lang_update = gr.update(choices=CHATTERBOX_LANGUAGES, value="English")
             else:
                 lang_update = gr.update(choices=["Auto"], value="Auto")
 
             return {
                 components['qwen_speaker_table']: gr.update(visible=is_qwen_custom),
-                components['qwen_base_voices_section']: gr.update(visible=is_qwen_base),
-                components['luxtts_voices_section']: gr.update(visible=is_luxtts),
-                components['vibevoice_voices_section']: gr.update(visible=is_vibevoice),
+                components['shared_voices_section']: gr.update(visible=uses_samples),
+                components['conv_voices_row_5_6']: gr.update(visible=uses_samples and not is_vibevoice),
+                components['conv_voices_row_7_8']: gr.update(visible=uses_samples and not is_vibevoice),
                 components['qwen_custom_settings']: gr.update(visible=is_qwen_custom),
                 components['qwen_base_settings']: gr.update(visible=is_qwen_base),
                 components['qwen_pause_controls']: gr.update(visible=is_qwen),
@@ -1491,48 +1604,45 @@ class ConversationTool(Tool):
                 components['qwen_conv_advanced']: gr.update(visible=is_qwen),
                 components['luxtts_settings']: gr.update(visible=is_luxtts),
                 components['vibevoice_settings']: gr.update(visible=is_vibevoice),
+                components['cb_settings']: gr.update(visible=is_chatterbox),
                 components['qwen_custom_tips']: gr.update(visible=is_qwen_custom),
                 components['qwen_base_tips']: gr.update(visible=is_qwen_base),
                 components['vibevoice_tips']: gr.update(visible=is_vibevoice),
                 components['luxtts_tips']: gr.update(visible=is_luxtts),
+                components['cb_tips']: gr.update(visible=is_chatterbox),
                 components['conv_language']: lang_update,
             }
 
         components['conv_model_type'].change(
             toggle_conv_ui,
             inputs=[components['conv_model_type']],
-            outputs=[components['qwen_speaker_table'], components['qwen_base_voices_section'],
-                     components['luxtts_voices_section'], components['vibevoice_voices_section'],
+            outputs=[components['qwen_speaker_table'],
+                     components['shared_voices_section'], components['conv_voices_row_5_6'], components['conv_voices_row_7_8'],
                      components['qwen_custom_settings'], components['qwen_base_settings'], components['qwen_pause_controls'],
                      components['conv_emotion_intensity_row'], components['qwen_conv_advanced'],
                      components['luxtts_settings'],
                      components['vibevoice_settings'],
+                     components['cb_settings'],
                      components['qwen_custom_tips'], components['qwen_base_tips'], components['vibevoice_tips'],
-                     components['luxtts_tips'],
+                     components['luxtts_tips'], components['cb_tips'],
                      components['conv_language']]
         )
 
         # Refresh voice samples handler
         def refresh_all_voice_samples():
-            """Refresh all voice sample dropdowns across all engines."""
+            """Refresh all shared voice sample dropdowns."""
             updated_samples = get_sample_choices()
             update = gr.update(choices=updated_samples)
-            return [update] * 20
+            return [update] * 8
 
         # Auto-refresh all voice sample dropdowns when tab is selected
         components['conv_tab'].select(
             refresh_all_voice_samples,
             outputs=[
-                components['voice_sample_1'], components['voice_sample_2'],
-                components['voice_sample_3'], components['voice_sample_4'],
-                components['qwen_voice_sample_1'], components['qwen_voice_sample_2'],
-                components['qwen_voice_sample_3'], components['qwen_voice_sample_4'],
-                components['qwen_voice_sample_5'], components['qwen_voice_sample_6'],
-                components['qwen_voice_sample_7'], components['qwen_voice_sample_8'],
-                components['luxtts_voice_sample_1'], components['luxtts_voice_sample_2'],
-                components['luxtts_voice_sample_3'], components['luxtts_voice_sample_4'],
-                components['luxtts_voice_sample_5'], components['luxtts_voice_sample_6'],
-                components['luxtts_voice_sample_7'], components['luxtts_voice_sample_8'],
+                components['conv_voice_1'], components['conv_voice_2'],
+                components['conv_voice_3'], components['conv_voice_4'],
+                components['conv_voice_5'], components['conv_voice_6'],
+                components['conv_voice_7'], components['conv_voice_8'],
             ]
         )
 

@@ -69,7 +69,9 @@ VOICE_CLONE_OPTIONS = [
     "VibeVoice - Small",
     "VibeVoice - Large (4-bit)",
     "VibeVoice - Large",
-    "LuxTTS - Default"
+    "LuxTTS - Default",
+    "Chatterbox - Default",
+    "Chatterbox - Multilingual",
 ]
 
 # Default to Large models for better quality (static fallback)
@@ -95,6 +97,12 @@ TTS_ENGINES = {
         "choices": ["LuxTTS - Default"],
         "default_enabled": True,
         "import_check": ("zipvoice.luxvoice", "LuxTTS"),
+    },
+    "Chatterbox": {
+        "label": "Chatterbox",
+        "choices": ["Chatterbox - Default", "Chatterbox - Multilingual"],
+        "default_enabled": True,
+        "import_check": ("modules.chatterbox", "ChatterboxTTS"),
     },
 }
 
@@ -421,12 +429,39 @@ LUXTTS_GENERATION_DEFAULTS = {
 # LuxTTS audio is 48kHz (higher quality than standard 24kHz)
 LUXTTS_SAMPLE_RATE = 48000
 
+# Chatterbox Generation Defaults
+CHATTERBOX_GENERATION_DEFAULTS = {
+    "exaggeration": 0.5,
+    "cfg_weight": 0.5,
+    "temperature": 0.8,
+    "repetition_penalty": 1.2,
+    "top_p": 1.0,
+}
+
+# Chatterbox supported languages (ISO codes from mtl_tts.py)
+CHATTERBOX_LANGUAGES = [
+    "Arabic", "Danish", "German", "Greek", "English", "Spanish",
+    "Finnish", "French", "Hebrew", "Hindi", "Italian", "Japanese",
+    "Korean", "Malay", "Dutch", "Norwegian", "Polish", "Portuguese",
+    "Russian", "Swedish", "Swahili", "Turkish", "Chinese",
+]
+
+# Map display names to ISO codes for Chatterbox Multilingual
+CHATTERBOX_LANG_TO_CODE = {
+    "Arabic": "ar", "Danish": "da", "German": "de", "Greek": "el",
+    "English": "en", "Spanish": "es", "Finnish": "fi", "French": "fr",
+    "Hebrew": "he", "Hindi": "hi", "Italian": "it", "Japanese": "ja",
+    "Korean": "ko", "Malay": "ms", "Dutch": "nl", "Norwegian": "no",
+    "Polish": "pl", "Portuguese": "pt", "Russian": "ru", "Swedish": "sv",
+    "Swahili": "sw", "Turkish": "tr", "Chinese": "zh",
+}
+
 # ============================================================================
 # UI/UX CONSTANTS
 # ============================================================================
 
 APP_TITLE = "Voice Clone Studio"
-APP_SUBTITLE = "Powered by Qwen3-TTS, VibeVoice, LuxTTS and Whisper"
+APP_SUBTITLE = "Powered by Qwen3-TTS, VibeVoice, LuxTTS, Chatterbox and Whisper"
 
 # Port assignments for standalone tool testing
 TOOL_PORTS = {

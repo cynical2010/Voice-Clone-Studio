@@ -65,22 +65,85 @@ echo.
 choice /C 12 /T 15 /D 2 /M "Install llama.cpp?"
 set LLAMA_CHOICE=%errorlevel%
 echo.
+
+echo ========================================
+echo Optional: Install Flash Attention 2 for faster inference?
+echo Flash Attention 2 provides fast attention for supported models.
+echo Requires CUDA GPU. Cannot be used with multilingual Chatterbox.
+echo ========================================
+echo.
+echo   1. Yes - Install Flash Attention 2
+echo   2. No  - Skip (DEFAULT)
+echo.
+choice /C 12 /T 15 /D 2 /M "Install Flash Attention 2?"
+set FLASH_CHOICE=%errorlevel%
+echo.
 echo All questions answered - installing now...
 echo.
 
-REM Check Python version
-echo [1/6] Checking Python installation...
-python --version
-if %errorlevel% neq 0 (
-    echo ERROR: Python not found! Please install Python 3.12+ first.
+REM Check Python version - find a compatible version (3.10-3.12)
+echo [1/7] Checking Python installation...
+set PYTHON_CMD=
+
+REM First try the py launcher to find a compatible version
+where py >nul 2>&1
+if %errorlevel% equ 0 (
+    REM Try 3.12 first, then 3.11, then 3.10
+    for %%V in (3.12 3.11 3.10) do (
+        if not defined PYTHON_CMD (
+            py -%%V --version >nul 2>&1
+            if not errorlevel 1 (
+                set PYTHON_CMD=py -%%V
+            )
+        )
+    )
+)
+
+REM If py launcher didn't find one, try bare python
+if not defined PYTHON_CMD (
+    python --version >nul 2>&1
+    if %errorlevel% equ 0 (
+        set PYTHON_CMD=python
+    )
+)
+
+if not defined PYTHON_CMD (
+    echo ERROR: Python not found! Please install Python 3.10-3.12.
     echo Download from: https://www.python.org/downloads/
     pause
     exit /b 1
 )
+
+REM Validate the version we found
+for /f "tokens=2" %%a in ('%PYTHON_CMD% --version 2^>^&1') do set PYVER=%%a
+for /f "tokens=1,2 delims=." %%a in ("%PYVER%") do (
+    set PYMAJOR=%%a
+    set PYMINOR=%%b
+)
+if not "%PYMAJOR%"=="3" (
+    echo ERROR: Python 3.10-3.12 is required. Detected: %PYVER%
+    echo Download from: https://www.python.org/downloads/
+    pause
+    exit /b 1
+)
+if %PYMINOR% LSS 10 (
+    echo ERROR: Python 3.10-3.12 is required. Detected: Python %PYVER%
+    echo Download from: https://www.python.org/downloads/
+    pause
+    exit /b 1
+)
+if %PYMINOR% GTR 12 (
+    echo ERROR: Python 3.13+ is not supported due to dependency conflicts.
+    echo Python 3.10, 3.11, or 3.12 was not found on your system.
+    echo Download from: https://www.python.org/downloads/
+    pause
+    exit /b 1
+)
+echo Using: %PYTHON_CMD% (Python %PYVER%)
 echo.
 
 REM Install media processing tools
-echo [2/6] Installing media processing tools...
+echo [2/7] Installing media processing tools...
 echo Installing SOX...
 winget install -e --id ChrisBagwell.SoX --accept-source-agreements --accept-package-agreements
 if %errorlevel% neq 0 (
@@ -99,11 +162,11 @@ if %errorlevel% neq 0 (
 echo.
 
 REM Create virtual environment
-echo [3/6] Creating virtual environment...
+echo [3/7] Creating virtual environment...
 if exist venv (
     echo Virtual environment already exists, skipping...
 ) else (
-    python -m venv venv
+    %PYTHON_CMD% -m venv venv
     if not exist venv (
         echo ERROR: Failed to create virtual environment!
         pause
@@ -114,7 +177,7 @@ if exist venv (
 echo.
 
 REM Activate virtual environment
-echo [4/6] Activating virtual environment...
+echo [4/7] Activating virtual environment...
 call venv\Scripts\activate.bat
 if %errorlevel% neq 0 (
     echo ERROR: Failed to activate virtual environment!
@@ -133,7 +196,7 @@ if %errorlevel% neq 0 (
 )
 
 REM Install PyTorch
-echo [5/6] Installing PyTorch...
+echo [5/7] Installing PyTorch...
 setlocal enabledelayedexpansion
 
 if "%CUDA_CHOICE%"=="1" set CUDA_VER=cu130
@@ -254,25 +317,45 @@ echo Skipping llama.cpp installation.
 :llama_done
 echo.
 
+REM Flash Attention 2
+if not "%FLASH_CHOICE%"=="1" goto :skip_flash
+
+echo.
+echo Installing Flash Attention 2...
+setlocal enabledelayedexpansion
+
+REM Flash Attention needs Python-version-specific wheels (cp310, cp311, cp312)
+set FLASH_PY=cp3%PYMINOR%
+
+if "%CUDA_CHOICE%"=="1" (
+    set FLASH_WHL=flash_attn-2.8.3+torch2.9.1.cuda13.1-!FLASH_PY!-!FLASH_PY!-win_amd64.whl
+) else (
+    set FLASH_WHL=flash_attn-2.8.2-!FLASH_PY!-!FLASH_PY!-win_amd64.whl
+)
+set FLASH_URL=https://huggingface.co/MonsterMMORPG/Wan_GGUF/resolve/main/!FLASH_WHL!
+echo Downloading: !FLASH_WHL!
+pip install "!FLASH_URL!"
+if !errorlevel! neq 0 (
+    echo WARNING: Flash Attention 2 installation failed.
+    echo Wheel may not exist for Python 3.%PYMINOR% with your CUDA version.
+    echo You can browse available wheels at: https://huggingface.co/MonsterMMORPG/Wan_GGUF/tree/main
+) else (
+    echo Flash Attention 2 installed successfully!
+)
+endlocal
+goto :flash_done
+
+:skip_flash
+echo Skipping Flash Attention 2 installation.
+:flash_done
+echo.
+
 echo ========================================
 echo Setup Complete!
 echo ========================================
 echo.
 echo Python version being used:
 python --version
-echo.
-echo OPTIONAL: Install Flash Attention 2 for better performance
-echo.
-echo Option 1 - Build from source (requires C++ compiler):
-echo   pip install flash-attn --no-build-isolation
-echo.
-echo Option 2 - Use prebuilt wheel (faster, no compiler needed):
-echo   Download a wheel matching your Python version
-echo   Then: pip install downloaded-wheel-file.whl
-echo.
-echo   Possible source for wheels (opening in browser):
-echo   https://huggingface.co/MonsterMMORPG/Wan_GGUF/tree/main
-echo ========================================
 echo.
 echo To launch Voice Clone Studio:
 echo   1. Make sure virtual environment is activated: venv\Scripts\activate
