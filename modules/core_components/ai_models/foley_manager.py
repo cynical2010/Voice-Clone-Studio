@@ -501,6 +501,8 @@ class FoleyManager:
 
     def unload_all(self):
         """Unload all MMAudio models and free VRAM."""
+        was_loaded = self._net is not None or self._feature_utils is not None
+
         if self._net is not None:
             del self._net
             self._net = None
@@ -511,9 +513,10 @@ class FoleyManager:
         self._current_model_name = None
         self._current_mode = None
 
-        gc.collect()
-        empty_device_cache()
-        print("MMAudio models unloaded")
+        if was_loaded:
+            gc.collect()
+            empty_device_cache()
+            print("MMAudio models unloaded")
 
 
 # Singleton pattern

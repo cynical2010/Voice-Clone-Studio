@@ -14,6 +14,8 @@ import signal
 import atexit
 import time
 import ctypes
+import random
+from datetime import datetime
 import requests
 import gradio as gr
 from pathlib import Path
@@ -37,37 +39,45 @@ LLM_MODELS = {
     },
 }
 
-# System prompt presets
-SYSTEM_PROMPTS = {
-    "TTS / Voice": (
-        "You are a script writer for voice acting. The user will give you a short idea or concept. "
-        "Your job is to write dialogue or monologue in FIRST PERSON, as if the speaker is saying it aloud. "
-        "Never describe the speaker in third person. Write the actual words they would speak. "
-        "Focus on tone, emotion, pacing, and natural speech patterns. "
-        "Output ONLY the spoken text, nothing else — no stage directions, no quotation marks."
-    ),
-    "Conversation": (
-        "You are a script writer for multi-speaker conversations. The user will give you a topic, scenario, "
-        "or concept along with the number of speakers to use. "
-        "Your job is to write a natural conversation where each speaker talks in FIRST PERSON to the others. "
-        "Each speaker's line MUST start on a new line with their number in brackets, like [1]: or [2]: etc. "
-        "Example format:\n"
-        "[1]: Hey, did you hear about the new project?\n"
-        "[2]: Yeah, I just got the email this morning.\n"
-        "[1]: What do you think about the timeline?\n"
-        "Write natural, flowing dialogue with realistic turn-taking. "
-        "Vary sentence length and speaking style between speakers to give each a distinct voice. "
-        "Output ONLY the conversation lines in the [n]: format, nothing else — no narration, no stage directions, no quotation marks."
-    ),
-    "Sound Design / SFX": (
-        "You are a sound design prompt writer. The user will give you a short idea or concept. "
-        "Your job is to expand it into a detailed, evocative description of a sound or soundscape. "
-        "Focus on texture, layers, timing, spatial qualities, and acoustic characteristics. "
-        "Describe what the listener should hear, not see. "
-        "Output ONLY the final sound description, nothing else."
-    ),
-}
+# System prompt presets — loaded from system_prompts.json
+SYSTEM_PROMPTS_FILE = Path(__file__).parent.parent / "system_prompts.json"
 
+
+def _load_system_prompts():
+    """Load system prompts from system_prompts.json.
+
+    Supports two formats:
+    - String values: used as-is
+    - Array of strings: joined with spaces (empty strings become newlines)
+
+    Returns:
+        Dictionary of preset name -> system prompt text.
+    """
+    if SYSTEM_PROMPTS_FILE.exists():
+        try:
+            with open(SYSTEM_PROMPTS_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                result = {}
+                for key, value in data.items():
+                    if isinstance(value, list):
+                        # Join array lines: empty strings become newlines
+                        parts = []
+                        for line in value:
+                            if line == "":
+                                parts.append("\n")
+                            else:
+                                parts.append(line)
+                        result[key] = " ".join(parts).replace(" \n ", "\n").replace(" \n", "\n").replace("\n ", "\n")
+                    else:
+                        result[key] = value
+                return result
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"[Prompt Manager] Error loading system_prompts.json: {e}")
+    return {}
+
+
+SYSTEM_PROMPTS = _load_system_prompts()
 SYSTEM_PROMPT_CHOICES = list(SYSTEM_PROMPTS.keys()) + ["Custom"]
 
 # ============================================================================
@@ -600,6 +610,108 @@ def _get_prompt_names():
 
 
 # ============================================================================
+# Temp prompts management
+# ============================================================================
+TEMP_PROMPTS_FILE = Path(__file__).parent.parent.parent.parent / "temp" / "temp_prompts.json"
+
+
+def _clear_temp_prompts():
+    """Delete the temp prompts file (called at launch)."""
+    if TEMP_PROMPTS_FILE.exists():
+        try:
+            TEMP_PROMPTS_FILE.unlink()
+        except Exception:
+            pass
+
+
+# Clear temp prompts on module load (i.e., every app launch)
+_clear_temp_prompts()
+
+
+def _load_temp_prompts():
+    """Load temp prompts from temp_prompts.json.
+
+    Returns:
+        Dictionary of name -> {instruction, result, seed, model, temperature,
+                               top_k, top_p, min_p, repeat_penalty, preset, timestamp}
+    """
+    if TEMP_PROMPTS_FILE.exists():
+        try:
+            with open(TEMP_PROMPTS_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                return data
+        except (json.JSONDecodeError, IOError):
+            pass
+    return {}
+
+
+def _save_temp_prompt(name, entry):
+    """Save a single temp prompt entry.
+
+    Args:
+        name: Display name for the entry
+        entry: Dict with instruction, result, seed, model, etc.
+    """
+    TEMP_PROMPTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    prompts = _load_temp_prompts()
+    prompts[name] = entry
+    with open(TEMP_PROMPTS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(prompts, f, indent=2, ensure_ascii=False)
+
+
+def _get_temp_prompt_names():
+    """Get list of temp prompt names for FileLister (newest first)."""
+    prompts = _load_temp_prompts()
+    # Sort by timestamp descending (newest first)
+    items = sorted(prompts.items(), key=lambda x: x[1].get("timestamp", ""), reverse=True)
+    return [name for name, _ in items]
+
+
+def _make_temp_name(instruction, seed):
+    """Generate a display name from the first 8 words + timestamp.
+
+    Args:
+        instruction: The user's LLM instruction text
+        seed: The seed used for generation
+
+    Returns:
+        A short descriptive name like 'dramatic pirate monologue about - 14h32'
+    """
+    words = instruction.strip().split()[:8]
+    short = " ".join(words)
+    if len(instruction.strip().split()) > 8:
+        short += "..."
+    timestamp = datetime.now().strftime("%Hh%M")
+    return f"{short} - {timestamp}"
+
+
+def _format_temp_info(entry):
+    """Format a temp prompt entry's metadata for display.
+
+    Args:
+        entry: Dict with generation metadata
+
+    Returns:
+        Formatted info string
+    """
+    lines = []
+    if "seed" in entry:
+        lines.append(f"Seed: {entry['seed']}")
+    if "model" in entry:
+        lines.append(f"Model: {entry['model']}")
+    if "preset" in entry:
+        lines.append(f"Preset: {entry['preset']}")
+    if "temperature" in entry:
+        lines.append(f"Temp: {entry['temperature']}  Top-K: {entry.get('top_k', '')}  Top-P: {entry.get('top_p', '')}")
+    if "min_p" in entry:
+        lines.append(f"Min-P: {entry['min_p']}  Repeat Penalty: {entry.get('repeat_penalty', '')}")
+    if "timestamp" in entry:
+        lines.append(f"Generated: {entry['timestamp']}")
+    return "\n".join(lines)
+
+
+# ============================================================================
 # Prompt Manager Tool
 # ============================================================================
 
@@ -631,17 +743,19 @@ class PromptManagerTool(Tool):
 
         components = {}
 
-        with gr.TabItem("Prompt Manager"):
+        with gr.TabItem("Prompt Manager") as prompt_manager_tab:
+            components['prompt_manager_tab'] = prompt_manager_tab
             with gr.Row():
                 # Left column: prompt editor and saved prompts
                 with gr.Column(scale=2):
-                    gr.Markdown("### Prompt Result")
+                    gr.Markdown("### Generated Prompt")
 
                     components['prompt_text'] = gr.Textbox(
-                        label="Prompt",
+                        label="Result",
                         lines=8,
-                        placeholder="Write your prompt here, or select a saved one from the list...",
-                        interactive=True
+                        max_lines=14,
+                        placeholder="Your prompt will appear here, or select a saved one from the list...",
+                        interactive=False
                     )
 
                     with gr.Row():
@@ -669,7 +783,15 @@ class PromptManagerTool(Tool):
                     gr.Markdown("### Saved Prompts")
                     components['prompt_lister'] = FileLister(
                         value=_get_prompt_names(),
-                        height=250,
+                        height=200,
+                        show_footer=False,
+                        interactive=True
+                    )
+
+                    gr.Markdown("### Recent Generations")
+                    components['temp_lister'] = FileLister(
+                        value=_get_temp_prompt_names(),
+                        height=200,
                         show_footer=False,
                         interactive=True
                     )
@@ -681,9 +803,73 @@ class PromptManagerTool(Tool):
                     components['llm_instruction'] = gr.Textbox(
                         label="Instructions for LLM",
                         lines=4,
+                        max_lines=10,
                         placeholder="Describe what kind of prompt you want the LLM to generate...\ne.g., 'A dramatic monologue about a pirate finding treasure'",
                         interactive=True
                     )
+
+                    with gr.Row():
+                        components['llm_model'] = gr.Dropdown(
+                            label="LLM Model",
+                            choices=model_choices,
+                            value=default_llm_model,
+                            interactive=True
+                        )
+
+                    with gr.Accordion("Advanced Settings", open=False):
+                        with gr.Row():
+                            components['llm_seed'] = gr.Number(
+                                label="Seed",
+                                value=-1,
+                                precision=0,
+                                minimum=-1,
+                                info="-1 for random",
+                                interactive=True
+                            )
+                            components['llm_temperature'] = gr.Slider(
+                                label="Temperature",
+                                minimum=0.0,
+                                maximum=2.0,
+                                value=0.8,
+                                step=0.05,
+                                interactive=True
+                            )
+                        with gr.Row():
+                            components['llm_top_k'] = gr.Slider(
+                                label="Top-K",
+                                minimum=0,
+                                maximum=200,
+                                value=40,
+                                step=1,
+                                info="0 = disabled",
+                                interactive=True
+                            )
+                            components['llm_top_p'] = gr.Slider(
+                                label="Top-P",
+                                minimum=0.0,
+                                maximum=1.0,
+                                value=0.95,
+                                step=0.05,
+                                interactive=True
+                            )
+                        with gr.Row():
+                            components['llm_min_p'] = gr.Slider(
+                                label="Min-P",
+                                minimum=0.0,
+                                maximum=1.0,
+                                value=0.05,
+                                step=0.01,
+                                info="0 = disabled",
+                                interactive=True
+                            )
+                            components['llm_repeat_penalty'] = gr.Slider(
+                                label="Repeat Penalty",
+                                minimum=1.0,
+                                maximum=2.0,
+                                value=1.1,
+                                step=0.05,
+                                interactive=True
+                            )
 
                     components['system_prompt_preset'] = gr.Dropdown(
                         label="System Prompt Preset",
@@ -695,17 +881,10 @@ class PromptManagerTool(Tool):
                     components['system_prompt'] = gr.Textbox(
                         label="System Prompt",
                         lines=4,
-                        value=SYSTEM_PROMPTS[SYSTEM_PROMPT_CHOICES[0]],
+                        max_lines=10,
+                        value=SYSTEM_PROMPTS.get(SYSTEM_PROMPT_CHOICES[0], ""),
                         interactive=True
                     )
-
-                    with gr.Row():
-                        components['llm_model'] = gr.Dropdown(
-                            label="LLM Model",
-                            choices=model_choices,
-                            value=default_llm_model,
-                            interactive=True
-                        )
 
                     with gr.Row():
                         components['generate_btn'] = gr.Button(
@@ -721,6 +900,12 @@ class PromptManagerTool(Tool):
                         label="LLM Status",
                         interactive=False,
                         lines=1,
+                    )
+
+                    components['temp_info'] = gr.Textbox(
+                        label="Generation Info",
+                        interactive=False,
+                        lines=4,
                     )
 
             # Hidden state
@@ -897,11 +1082,29 @@ class PromptManagerTool(Tool):
             outputs=[components['pm_status'], components['prompt_lister'], components['prompt_text']]
         )
 
+        # --- Reload system prompts when tab is selected ---
+        def on_tab_select(current_preset):
+            """Reload system_prompts.json from disk so edits take effect without restart."""
+            global SYSTEM_PROMPTS, SYSTEM_PROMPT_CHOICES
+            SYSTEM_PROMPTS = _load_system_prompts()
+            SYSTEM_PROMPT_CHOICES = list(SYSTEM_PROMPTS.keys()) + ["Custom"]
+            # Keep current selection if it still exists, otherwise reset to first
+            if current_preset not in SYSTEM_PROMPT_CHOICES:
+                current_preset = SYSTEM_PROMPT_CHOICES[0] if SYSTEM_PROMPT_CHOICES else "Custom"
+            prompt_text = SYSTEM_PROMPTS.get(current_preset, "")
+            return gr.update(choices=SYSTEM_PROMPT_CHOICES, value=current_preset), gr.update(value=prompt_text)
+
+        components['prompt_manager_tab'].select(
+            on_tab_select,
+            inputs=[components['system_prompt_preset']],
+            outputs=[components['system_prompt_preset'], components['system_prompt']]
+        )
+
         # --- System prompt preset selector ---
         def on_preset_change(preset_name):
             if preset_name in SYSTEM_PROMPTS:
                 return gr.update(value=SYSTEM_PROMPTS[preset_name])
-            return gr.update()  # "Custom" — leave text as-is
+            return gr.update(value="")  # "Custom" — leave text as-is
 
         components['system_prompt_preset'].change(
             on_preset_change,
@@ -915,19 +1118,22 @@ class PromptManagerTool(Tool):
             return gr.update(choices=choices)
 
         # --- Generate prompt with LLM ---
-        def generate_with_llm(instruction, system_prompt, model_name, progress=gr.Progress()):
+        def generate_with_llm(instruction, system_prompt, model_name,
+                              seed, temperature, top_k, top_p, min_p, repeat_penalty,
+                              system_prompt_preset,
+                              progress=gr.Progress()):
             """Send instruction to LLM and return generated prompt."""
             if not instruction or not instruction.strip():
-                return gr.update(), "Please enter instructions for the LLM"
+                return gr.update(), "Please enter instructions for the LLM", gr.update(), gr.update()
 
             if not model_name:
-                return gr.update(), "Please select a model"
+                return gr.update(), "Please select a model", gr.update(), gr.update()
 
             try:
                 progress(0.1, desc="Starting LLM server...")
                 success, error = _start_server(model_name, user_config, progress)
                 if not success:
-                    return gr.update(), f"Server error: {error}"
+                    return gr.update(), f"Server error: {error}", gr.update(), gr.update()
 
                 progress(0.6, desc="Generating prompt...")
 
@@ -939,9 +1145,16 @@ class PromptManagerTool(Tool):
                         {"role": "user", "content": instruction.strip()}
                     ],
                     "stream": False,
-                    "temperature": 0.8,
-                    "top_p": 0.95,
+                    "temperature": float(temperature),
+                    "top_p": float(top_p),
+                    "top_k": int(top_k),
+                    "min_p": float(min_p),
+                    "repeat_penalty": float(repeat_penalty),
                 }
+
+                # Seed: use provided value, or generate a random one
+                actual_seed = int(seed) if int(seed) >= 0 else random.randint(0, 2**32 - 1)
+                payload["seed"] = actual_seed
 
                 response = requests.post(
                     f"http://localhost:{SERVER_PORT}/v1/chat/completions",
@@ -954,7 +1167,7 @@ class PromptManagerTool(Tool):
                     _stop_server()
                     success, error = _start_server(model_name, user_config, progress)
                     if not success:
-                        return gr.update(), f"Server restart failed: {error}"
+                        return gr.update(), f"Server restart failed: {error}", gr.update(), gr.update()
                     response = requests.post(
                         f"http://localhost:{SERVER_PORT}/v1/chat/completions",
                         json=payload,
@@ -967,11 +1180,11 @@ class PromptManagerTool(Tool):
                 # Extract response text
                 choices = data.get("choices", [])
                 if not choices:
-                    return gr.update(), "LLM returned no response"
+                    return gr.update(), "LLM returned no response", gr.update(), gr.update()
 
                 generated_text = choices[0].get("message", {}).get("content", "").strip()
                 if not generated_text:
-                    return gr.update(), "LLM returned empty response"
+                    return gr.update(), "LLM returned empty response", gr.update(), gr.update()
 
                 # Strip thinking tags if present
                 if "<think>" in generated_text:
@@ -979,14 +1192,40 @@ class PromptManagerTool(Tool):
                     generated_text = re.sub(r'<think>.*?</think>', '', generated_text, flags=re.DOTALL).strip()
 
                 progress(1.0, desc="Done")
-                return gr.update(value=generated_text), "Prompt generated successfully"
+
+                # Save to temp prompts history
+                try:
+                    preset_name = system_prompt_preset if system_prompt_preset else "Custom"
+                    temp_name = _make_temp_name(instruction, actual_seed)
+                    _save_temp_prompt(temp_name, {
+                        "instruction": instruction.strip(),
+                        "result": generated_text,
+                        "seed": actual_seed,
+                        "model": model_name,
+                        "preset": preset_name,
+                        "temperature": float(temperature),
+                        "top_k": int(top_k),
+                        "top_p": float(top_p),
+                        "min_p": float(min_p),
+                        "repeat_penalty": float(repeat_penalty),
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    })
+                except Exception:
+                    pass
+
+                return (
+                    gr.update(value=generated_text),
+                    "Prompt generated successfully",
+                    gr.update(value=_get_temp_prompt_names()),
+                    gr.update(value=""),
+                )
 
             except requests.exceptions.ConnectionError:
-                return gr.update(), "Could not connect to LLM server. Is llama-server installed?"
+                return gr.update(), "Could not connect to LLM server. Is llama-server installed?", gr.update(), gr.update()
             except requests.exceptions.Timeout:
-                return gr.update(), "LLM request timed out (120s)"
+                return gr.update(), "LLM request timed out (120s)", gr.update(), gr.update()
             except Exception as e:
-                return gr.update(), f"Error: {e}"
+                return gr.update(), f"Error: {e}", gr.update(), gr.update()
 
         components['generate_btn'].click(
             generate_with_llm,
@@ -994,10 +1233,19 @@ class PromptManagerTool(Tool):
                 components['llm_instruction'],
                 components['system_prompt'],
                 components['llm_model'],
+                components['llm_seed'],
+                components['llm_temperature'],
+                components['llm_top_k'],
+                components['llm_top_p'],
+                components['llm_min_p'],
+                components['llm_repeat_penalty'],
+                components['system_prompt_preset'],
             ],
             outputs=[
                 components['prompt_text'],
                 components['llm_status'],
+                components['temp_lister'],
+                components['temp_info'],
             ]
         )
 
@@ -1009,6 +1257,42 @@ class PromptManagerTool(Tool):
         components['stop_server_btn'].click(
             stop_llm_server,
             outputs=[components['llm_status']]
+        )
+
+        # --- Select temp prompt from lister ---
+        def load_temp_prompt(lister_value):
+            """Load a selected temp prompt back into the UI fields."""
+            no_update = gr.update(), gr.update(), gr.update()
+            if not lister_value:
+                return no_update
+            selected = lister_value.get("selected", [])
+            if len(selected) != 1:
+                return no_update
+
+            prompt_name = selected[0]
+            temps = _load_temp_prompts()
+            entry = temps.get(prompt_name)
+            if not entry:
+                return no_update
+
+            result_text = entry.get("result", "")
+            instruction_text = entry.get("instruction", "")
+            info_text = _format_temp_info(entry)
+
+            return (
+                gr.update(value=result_text),
+                gr.update(value=instruction_text),
+                gr.update(value=info_text),
+            )
+
+        components['temp_lister'].change(
+            load_temp_prompt,
+            inputs=[components['temp_lister']],
+            outputs=[
+                components['prompt_text'],
+                components['llm_instruction'],
+                components['temp_info'],
+            ]
         )
 
         # Save LLM model selection to config
