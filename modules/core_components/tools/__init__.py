@@ -15,6 +15,7 @@ from pathlib import Path
 
 # Import all tool modules here
 from modules.core_components.tools import voice_clone
+from modules.core_components.tools import voice_changer
 from modules.core_components.tools import voice_presets
 from modules.core_components.tools import conversation
 from modules.core_components.tools import voice_design
@@ -29,6 +30,7 @@ from modules.core_components.tools import settings
 # Format: 'tool_name': (module, ToolConfig)
 ALL_TOOLS = {
     'voice_clone': (voice_clone, voice_clone.VoiceCloneTool.config),
+    'voice_changer': (voice_changer, voice_changer.VoiceChangerTool.config),
     'voice_presets': (voice_presets, voice_presets.VoicePresetsTool.config),
     'conversation': (conversation, conversation.ConversationTool.config),
     'voice_design': (voice_design, voice_design.VoiceDesignTool.config),
@@ -236,7 +238,7 @@ SHARED_CSS = """
     box-shadow: none !important;
 }
 #finetune-files-group label:hover {
-    background: rgba(255, 255, 255, 0.05) !important;
+    background: var(--color-accent-soft) !important;
 }
 #output-files-group > div {
     display: grid !important;
@@ -253,7 +255,7 @@ SHARED_CSS = """
     box-shadow: none !important;
 }
 #output-files-group label:hover {
-    background: rgba(255, 255, 255, 0.05) !important;
+    background: var(--color-accent-soft) !important;
 }
 
 /* Push Settings (last tab) to the far right - only top-level tabs */
@@ -658,6 +660,7 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
         create_qwen_advanced_params,
         create_vibevoice_advanced_params,
         create_luxtts_advanced_params,
+        create_chatterbox_advanced_params,
         create_emotion_intensity_slider,
         create_pause_controls
     )
@@ -793,6 +796,7 @@ def build_shared_state(user_config, active_emotions, directories, constants, man
         'create_qwen_advanced_params': create_qwen_advanced_params,
         'create_vibevoice_advanced_params': create_vibevoice_advanced_params,
         'create_luxtts_advanced_params': create_luxtts_advanced_params,
+        'create_chatterbox_advanced_params': create_chatterbox_advanced_params,
         'create_emotion_intensity_slider': create_emotion_intensity_slider,
         'create_pause_controls': create_pause_controls,
 

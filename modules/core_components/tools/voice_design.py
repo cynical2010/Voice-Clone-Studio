@@ -52,17 +52,11 @@ class VoiceDesignTool(Tool):
                 with gr.Column(scale=1):
                     gr.Markdown("### Create Design")
 
-                    components['design_text_input'] = gr.Textbox(
-                        label="Reference Text",
-                        placeholder="Enter the text for the voice design (this will be spoken in the designed voice)...",
-                        lines=3,
-                        value="Thank you for listening to this voice design sample. This sentence is intentionally a bit long so you can hear the full range and quality of the generated voice."
-                    )
-
                     components['design_instruct_input'] = gr.Textbox(
                         label="Voice Design Instructions",
                         placeholder="Describe the voice: e.g., 'Young female voice, bright and cheerful, slightly breathy' or 'Deep male voice with a warm, comforting tone, speak slowly'",
-                        lines=3
+                        lines=3,
+                        max_lines=10
                     )
 
                     with gr.Row():
@@ -79,11 +73,6 @@ class VoiceDesignTool(Tool):
                             scale=1
                         )
 
-                    components['save_to_output_checkbox'] = gr.Checkbox(
-                        label="Save to Output folder instead of Temp",
-                        value=False
-                    )
-
                     # Qwen Advanced Parameters
                     design_params = create_qwen_advanced_params(
                         include_emotion=False,
@@ -93,7 +82,14 @@ class VoiceDesignTool(Tool):
                     components.update(design_params)
 
                     components['design_generate_btn'] = gr.Button("Generate Voice", variant="primary", size="lg")
-                    components['design_status'] = gr.Textbox(label="Status", interactive=False, lines=2, max_lines=3)
+
+                    components['design_text_input'] = gr.Textbox(
+                        label="Reference Text",
+                        placeholder="Enter the text for the voice design (this will be spoken in the designed voice)...",
+                        lines=3,
+                        max_lines=6,
+                        value="Thank you for listening to this voice design sample. This sentence is intentionally a bit long so you can hear the full range and quality of the generated voice."
+                    )
 
                 with gr.Column(scale=1):
                     gr.Markdown("### Preview & Save")
@@ -103,6 +99,7 @@ class VoiceDesignTool(Tool):
                     )
 
                     components['design_save_btn'] = gr.Button("Save Sample", variant="primary", interactive=False)
+                    components['design_status'] = gr.Textbox(label="Status", interactive=False, lines=2, max_lines=5)
 
         return components
 
@@ -116,14 +113,14 @@ class VoiceDesignTool(Tool):
         input_trigger = shared_state.get('input_trigger')
         SAMPLES_DIR = shared_state.get('SAMPLES_DIR')
         OUTPUT_DIR = shared_state.get('OUTPUT_DIR')
+        TEMP_DIR = shared_state.get('TEMP_DIR')
         play_completion_beep = shared_state.get('play_completion_beep')
 
         # Get TTS manager (singleton)
         tts_manager = get_tts_manager()
 
-        def generate_voice_design_handler(text_to_generate, language, instruct, seed, save_to_output,
-                                          do_sample, temperature, top_k, top_p, repetition_penalty, max_new_tokens,
-                                          progress=gr.Progress()):
+        def generate_voice_design_handler(text_to_generate, language, instruct, seed, do_sample, temperature,
+                                          top_k, top_p, repetition_penalty, max_new_tokens, progress=gr.Progress()):
             """Generate audio using voice design with natural language instructions."""
             if not text_to_generate or not text_to_generate.strip():
                 return None, "❌ Please enter text to generate.", gr.update()
@@ -155,7 +152,7 @@ class VoiceDesignTool(Tool):
                     max_new_tokens=max_new_tokens
                 )
 
-                progress(0.8, desc=f"Saving audio ({'output' if save_to_output else 'temp'})...")
+                progress(0.8, desc="Saving audio temp...")
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
                 # Ensure audio is numpy array (move to CPU if tensor)
@@ -164,14 +161,10 @@ class VoiceDesignTool(Tool):
                 elif hasattr(audio_data, "numpy"):
                     audio_data = audio_data.numpy()
 
-                if save_to_output:
-                    out_file = OUTPUT_DIR / f"voice_design_{timestamp}.wav"
-                else:
-                    # Use output directory with temp_ prefix for temp files
-                    out_file = OUTPUT_DIR / f"temp_voice_design_{timestamp}.wav"
+                out_file = TEMP_DIR / f"temp_voice_design_{timestamp}.wav"
 
                 # Ensure directory exists
-                OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+                TEMP_DIR.mkdir(parents=True, exist_ok=True)
                 sf.write(str(out_file), audio_data, sr)
 
                 progress(1.0, desc="Done!")
@@ -227,8 +220,7 @@ class VoiceDesignTool(Tool):
         components['design_generate_btn'].click(
             generate_voice_design_handler,
             inputs=[components['design_text_input'], components['design_language'], components['design_instruct_input'],
-                    components['design_seed'], components['save_to_output_checkbox'],
-                    components['do_sample'], components['temperature'], components['top_k'],
+                    components['design_seed'], components['do_sample'], components['temperature'], components['top_k'],
                     components['top_p'], components['repetition_penalty'], components['max_new_tokens']],
             outputs=[components['design_output_audio'], components['design_status'], components['design_save_btn']]
         )
@@ -267,9 +259,8 @@ class VoiceDesignTool(Tool):
 
             input_trigger.change(
                 handle_save_design_input,
-                inputs=[input_trigger, components['design_output_audio'], 
-                        components['design_text_input'], components['design_instruct_input'],
-                        components['design_seed']],
+                inputs=[input_trigger, components['design_output_audio'], components['design_text_input'],
+                        components['design_instruct_input'], components['design_seed']],
                 outputs=[components['design_status'], components['design_save_btn']]
             )
 

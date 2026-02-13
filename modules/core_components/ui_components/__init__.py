@@ -487,6 +487,82 @@ def create_luxtts_advanced_params(
     return components
 
 
+def create_chatterbox_advanced_params(
+    initial_exaggeration=0.5,
+    initial_cfg_weight=0.5,
+    initial_temperature=0.8,
+    initial_repetition_penalty=1.2,
+    initial_top_p=1.0,
+    visible=False
+):
+    """
+    Reusable Chatterbox advanced parameters accordion.
+
+    Args:
+        initial_exaggeration: Emotion intensity (0-2)
+        initial_cfg_weight: Classifier-free guidance weight
+        initial_temperature: Sampling temperature
+        initial_repetition_penalty: Repetition penalty
+        initial_top_p: Top-p sampling
+        visible: Make accordion visible
+
+    Returns:
+        dict with component references
+    """
+    components = {}
+
+    with gr.Accordion("Chatterbox Advanced Parameters", open=False, visible=visible) as accordion:
+        with gr.Row():
+            components['exaggeration'] = gr.Slider(
+                minimum=0.0,
+                maximum=2.0,
+                value=initial_exaggeration,
+                step=0.05,
+                label="Exaggeration",
+                info="Emotion intensity (0 = flat, 2 = very expressive)"
+            )
+            components['cfg_weight'] = gr.Slider(
+                minimum=0.0,
+                maximum=1.0,
+                value=initial_cfg_weight,
+                step=0.05,
+                label="CFG Weight",
+                info="Classifier-free guidance (higher = more adherence to reference voice)"
+            )
+
+        with gr.Row():
+            components['temperature'] = gr.Slider(
+                minimum=0.1,
+                maximum=2.0,
+                value=initial_temperature,
+                step=0.05,
+                label="Temperature",
+                info="Sampling temperature"
+            )
+            components['repetition_penalty'] = gr.Slider(
+                minimum=1.0,
+                maximum=3.0,
+                value=initial_repetition_penalty,
+                step=0.05,
+                label="Repetition Penalty",
+                info="Higher = less repetition"
+            )
+
+        with gr.Row():
+            components['top_p'] = gr.Slider(
+                minimum=0.0,
+                maximum=1.0,
+                value=initial_top_p,
+                step=0.05,
+                label="Top-p",
+                info="Nucleus sampling threshold"
+            )
+
+    components['accordion'] = accordion
+
+    return components
+
+
 def create_pause_controls(
     initial_linebreak=0.5,
     initial_period=0.4,

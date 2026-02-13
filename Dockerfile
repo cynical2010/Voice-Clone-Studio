@@ -87,6 +87,9 @@ COPY ./requirements.txt /home/user/app/requirements.txt
 WORKDIR /home/user/app
 RUN pip install --no-cache-dir -r /home/user/app/requirements.txt
 
+# Chatterbox Voice Conversion dependencies
+RUN pip install --no-cache-dir s3tokenizer conformer
+
 # LuxTTS voice cloning engine
 RUN pip install --no-cache-dir git+https://github.com/ysharma3501/LinaCodec.git && \
     pip install --no-cache-dir piper-phonemize --find-links https://k2-fsa.github.io/icefall/piper_phonemize.html && \
@@ -116,9 +119,7 @@ COPY ./modules /home/user/app/modules
 COPY ./wheel /home/user/app/wheel
 COPY ./tests /home/user/app/tests
 COPY ./docs /home/user/app/docs
-COPY ./config.json /home/user/app/config.json
 COPY ./voice_clone_studio.py /home/user/app/voice_clone_studio.py
-COPY ./.github/copilot-instructions.md /home/user/app/.github/copilot-instructions.md
 WORKDIR /home/user/app
 EXPOSE 7860
 CMD ["python3", "voice_clone_studio.py"]

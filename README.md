@@ -1,8 +1,8 @@
 # Voice Clone Studio
 
-Is a multi model, modular Gradio-based web UI for voice cloning, voice design, multi-speaker conversation and sound effects, powered by [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), [VibeVoice](https://github.com/microsoft/VibeVoice), [LuxTTS](https://github.com/ysharma3501/LuxTTS) and [MMAudio](https://github.com/hkchengrex/MMAudio). Supports Qwen3-ASR, VibeVoice ASR and  Whisper for automatic transcription. As well as Llama.cpp for Prompt Generation and a Prompt Saving, based on [ComfyUI Prompt-Manager](https://github.com/FranckyB/ComfyUI-Prompt-Manager)
+Is a multi model, modular Gradio-based web UI for voice cloning, voice design, multi-speaker conversation, voice conversion and sound effects, powered by [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), [VibeVoice](https://github.com/microsoft/VibeVoice), [LuxTTS](https://github.com/ysharma3501/LuxTTS), [Chatterbox](https://github.com/resemble-ai/chatterbox) and [MMAudio](https://github.com/hkchengrex/MMAudio). Supports Qwen3-ASR, VibeVoice ASR and Whisper for automatic transcription. As well as Llama.cpp for Prompt Generation and a Prompt Saving, based on [ComfyUI Prompt-Manager](https://github.com/FranckyB/ComfyUI-Prompt-Manager)
 
-![Voice Clone Studio](https://img.shields.io/badge/Voice%20Clone%20Studio-v1.4-blue) ![Qwen3-TTS](https://img.shields.io/badge/Qwen3--TTS-Powered-blue) ![LuxTTS](https://img.shields.io/badge/LuxTTS-TTS-orange) ![VibeVoice](https://img.shields.io/badge/VibeVoice-TTS-green) ![VibeVoice](https://img.shields.io/badge/VibeVoice-ASR-green) ![MMAudio](https://img.shields.io/badge/MMAudio-SFX-purple)
+![Voice Clone Studio](https://img.shields.io/badge/Voice%20Clone%20Studio-v1.4-blue) ![Qwen3-TTS](https://img.shields.io/badge/Qwen3--TTS-Powered-blue) ![LuxTTS](https://img.shields.io/badge/LuxTTS-TTS-orange) ![VibeVoice](https://img.shields.io/badge/VibeVoice-TTS-green) ![VibeVoice](https://img.shields.io/badge/VibeVoice-ASR-green) ![Chatterbox](https://img.shields.io/badge/Chatterbox-Voice%20Changer-red) ![MMAudio](https://img.shields.io/badge/MMAudio-SFX-purple)
 
 ## Architecture
 
@@ -61,6 +61,15 @@ Perfect for:
 - **Small** - Faster generation (Qwen: 0.6B, VibeVoice: 1.5B)
 - **Large** - Best quality (Qwen: 1.7B, VibeVoice: Large model)
 
+
+### Voice Changer
+Change the voice in any audio using Chatterbox speech-to-speech voice conversion (Resemble AI, MIT license):
+
+- **Speech-to-Speech** - Upload or record audio, select a target voice sample, and re-speak the content in the target voice
+- **Microphone support** - Record directly from your microphone for real-time voice conversion
+- **Any voice sample** - Use the same voice samples from Voice Clone as conversion targets
+- **English optimized** - Best results with English speech; multilingual support available with the Multilingual model
+- **Multiple models** - TTS (English), Multilingual (23 languages)
 
 ### Voice Presets
 Generate with premium pre-built voices with optional style instructions using Qwen3-TTS Custom Model:
@@ -150,7 +159,7 @@ Centralized application configuration:
 
 ### Prerequisites
 
-- Python 3.10+ (recommended for all platforms)
+- Python 3.10-3.12 (3.12 recommended, 3.13+ is not supported due to dependency conflicts)
 - **Windows/Linux:** CUDA-compatible GPU (recommended: 8GB+ VRAM)
 - **macOS:** Apple Silicon (M1/M2/M3/M4) for MPS acceleration, or Intel Mac (CPU-only)
 - **SOX**  (Sound eXchange) - Required for audio processing
@@ -417,6 +426,7 @@ Voice-Clone-Studio/
     │   │   ├── voice_presets.py
     │   │   ├── conversation.py
     │   │   ├── voice_design.py
+    │   │   ├── voice_changer.py
     │   │   ├── sound_effects.py
     │   │   ├── prep_audio.py
     │   │   ├── output_history.py
@@ -431,6 +441,7 @@ Voice-Clone-Studio/
     │   └── help_page.py           # Help content
     ├── deepfilternet/             # Audio denoising
     ├── qwen_finetune/             # Training scripts
+    ├── chatterbox/                # Chatterbox voice conversion
     ├── vibevoice_tts/             # VibeVoice TTS
     └── vibevoice_asr/             # VibeVoice ASR
 ```
@@ -446,6 +457,7 @@ Each tab lets you choose between model sizes:
 | **Qwen3-TTS VoiceDesign** | 1.7B only | Voice design from descriptions |
 | **LuxTTS** | Large | Voice cloning with speaker encoder |
 | **VibeVoice-TTS** | Small, Large | Voice cloning & Long-form multi-speaker (up to 90 min) |
+| **Chatterbox** | TTS, Multilingual | Speech-to-speech voice conversion |
 | **VibeVoice-ASR** | Large | Audio transcription |
 | **Whisper** | Medium | Audio transcription |
 | **MMAudio** | Medium, Large v2 | Sound effects generation (text & video to audio) |
@@ -473,6 +485,7 @@ This project is based on and uses code from:
 - **[LuxTTS](https://github.com/ysharma3501/LuxTTS)**     - Apache 2.0 License
 - **[Gradio](https://gradio.app/)**                       - Apache 2.0 License
 - **[MMAudio](https://github.com/hkchengrex/MMAudio)**       - MIT License
+- **[Chatterbox](https://github.com/resemble-ai/chatterbox)** - MIT License (Resemble AI)
 - **[DeepFilterNet](https://github.com/Rikorose/DeepFilterNet)** - MIT License
 
 ## Updates
