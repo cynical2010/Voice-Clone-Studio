@@ -755,7 +755,7 @@ class PromptManagerTool(Tool):
                         lines=8,
                         max_lines=14,
                         placeholder="Your prompt will appear here, or select a saved one from the list...",
-                        interactive=False
+                        interactive=True
                     )
 
                     with gr.Row():
