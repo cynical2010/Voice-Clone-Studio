@@ -197,7 +197,7 @@ def create_ui():
             with gr.Column(scale=20):
                 gr.Markdown("""
                     # 🎙️ Voice Clone Studio
-                    <p style="font-size: 0.9em; color: var(--body-text-color-subdued); margin-top: -10px;">Powered by Qwen3-TTS, VibeVoice, LuxTTS and Whisper</p>
+                    <p style="font-size: 0.9em; color: var(--body-text-color-subdued); margin-top: -10px;">Powered by Qwen3-TTS, VibeVoice, LuxTTS, Chatterbox and Whisper</p>
                     """)
 
             with gr.Column(scale=1, min_width=180):
@@ -308,7 +308,7 @@ if __name__ == "__main__":
             print()
             print("=" * 50)
             print("Network listening enabled")
-            print(f"Local:   http://127.0.0.1:7860")
+            print("Local:   http://127.0.0.1:7860")
             print(f"Network: http://{lan_ip}:7860")
             print()
             print("NOTE: Only devices on your local network can")
@@ -332,7 +332,7 @@ if __name__ == "__main__":
         print("=" * 50)
         print("Voice Clone Studio is already running!")
         if network_mode or server_host == "0.0.0.0":
-            print(f"Local:   http://127.0.0.1:7860")
+            print("Local:   http://127.0.0.1:7860")
             print(f"Network: http://{lan_ip}:7860")
         else:
             print("Check your browser at http://127.0.0.1:7860")

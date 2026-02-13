@@ -39,6 +39,10 @@ bitsandbytes
 # Voice isolation and denoising
 deepfilternet
 
+# Chatterbox Voice Conversion & TTS (vendored in modules/chatterbox/)
+s3tokenizer
+conformer
+
 # Optional performance enhancements (install separately for best performance):
 # - Flash Attention 2 (fast): pip install flash-attn --no-build-isolation
 

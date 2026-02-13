@@ -19,15 +19,36 @@ else
 fi
 echo ""
 
-# Check Python version
-if command -v python3 >/dev/null 2>&1; then
-    PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
-    echo "Detected Python version: $PYTHON_VERSION"
-else
-    echo "ERROR: Python 3 not found!"
-    echo "Install with Homebrew: brew install python"
+# Find a compatible Python version (3.10-3.12, 3.13+ not supported)
+PYTHON_CMD=""
+for PYVER in python3.12 python3.11 python3.10; do
+    if command -v "$PYVER" >/dev/null 2>&1; then
+        PYTHON_CMD="$PYVER"
+        break
+    fi
+done
+
+# Fall back to python3 if specific versions weren't found
+if [ -z "$PYTHON_CMD" ]; then
+    if command -v python3 >/dev/null 2>&1; then
+        PYTHON_CMD="python3"
+    else
+        echo "ERROR: Python not found! Please install Python 3.10-3.12."
+        echo "Install with Homebrew: brew install python@3.12"
+        exit 1
+    fi
+fi
+
+# Validate the version
+PYTHON_VERSION=$($PYTHON_CMD --version 2>&1 | awk '{print $2}')
+PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
+if [ "$PYTHON_MINOR" -lt 10 ] || [ "$PYTHON_MINOR" -gt 12 ]; then
+    echo "ERROR: Python 3.10-3.12 is required. Detected: $PYTHON_VERSION"
+    echo "Python 3.13+ is not supported due to dependency conflicts."
+    echo "Install with Homebrew: brew install python@3.12"
     exit 1
 fi
+echo "Using: $PYTHON_CMD (Python $PYTHON_VERSION)"
 echo ""
 
 echo "Note: Model training is not supported on macOS"
@@ -97,7 +118,7 @@ fi
 # Create virtual environment
 if [ ! -d "venv" ]; then
     echo "Creating virtual environment..."
-    python3 -m venv venv
+    $PYTHON_CMD -m venv venv
 else
     echo "Virtual environment already exists, skipping creation..."
 fi
@@ -133,6 +154,11 @@ if [ -f "requirements.txt" ]; then
     if [ -f "wheel/gradio_filelister-0.4.0-py3-none-any.whl" ]; then
         pip install wheel/gradio_filelister-0.4.0-py3-none-any.whl
     fi
+
+    # Install Chatterbox Voice Conversion dependencies
+    echo ""
+    echo "Installing Chatterbox Voice Conversion dependencies..."
+    pip install s3tokenizer conformer
 
     # Install onnxruntime (CPU version, not GPU)
     echo ""

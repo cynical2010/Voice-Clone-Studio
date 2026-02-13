@@ -1,7 +1,7 @@
 """
 Voice Clone Tab
 
-Clone voices from samples using Qwen3-TTS or VibeVoice.
+Clone voices from samples using Qwen3-TTS, VibeVoice, LuxTTS, or Chatterbox.
 """
 # Setup path for standalone testing BEFORE imports
 if __name__ == "__main__":
@@ -133,7 +133,7 @@ class VoiceCloneTool(Tool):
                         components['clone_model_dropdown'] = gr.Dropdown(
                             choices=visible_options,
                             value=saved_model,
-                            label="Engine & Model (Qwen3, VibeVoice, or LuxTTS)",
+                            label="Engine & Model",
                             scale=4
                         )
                         components['seed_input'] = gr.Number(
@@ -215,6 +215,28 @@ class VoiceCloneTool(Tool):
                     components['luxtts_ref_duration'] = luxtts_params['ref_duration']
                     components['luxtts_guidance_scale'] = luxtts_params['guidance_scale']
 
+                    # Chatterbox Advanced Parameters
+                    is_cb_initial = "Chatterbox" in saved_model
+                    create_chatterbox_advanced_params = shared_state['create_chatterbox_advanced_params']
+                    cb_params = create_chatterbox_advanced_params(visible=is_cb_initial)
+                    components['cb_params_accordion'] = cb_params['accordion']
+                    components['cb_exaggeration'] = cb_params['exaggeration']
+                    components['cb_cfg_weight'] = cb_params['cfg_weight']
+                    components['cb_temperature'] = cb_params['temperature']
+                    components['cb_repetition_penalty'] = cb_params['repetition_penalty']
+                    components['cb_top_p'] = cb_params['top_p']
+
+                    # Chatterbox Multilingual language dropdown (only shown for Chatterbox - Multilingual)
+                    is_cb_mtl_initial = "Multilingual" in saved_model
+                    components['cb_language_row'] = gr.Row(visible=is_cb_mtl_initial)
+                    with components['cb_language_row']:
+                        from modules.core_components.constants import CHATTERBOX_LANGUAGES
+                        components['cb_language_dropdown'] = gr.Dropdown(
+                            choices=CHATTERBOX_LANGUAGES,
+                            value="English",
+                            label="Language (Chatterbox Multilingual)",
+                        )
+
                     components['generate_btn'] = gr.Button("Generate Audio", variant="primary", size="lg")
 
                     components['output_audio'] = gr.Audio(
@@ -267,6 +289,8 @@ class VoiceCloneTool(Tool):
                                    vv_cfg_scale=3.0, vv_num_steps=20, vv_sentences_per_chunk=0,
                                    lux_num_steps=4, lux_t_shift=0.5, lux_speed=1.0, lux_return_smooth=False,
                                    lux_rms=0.01, lux_ref_duration=30, lux_guidance_scale=3.0,
+                                   cb_exaggeration=0.5, cb_cfg_weight=0.5, cb_temperature=0.8,
+                                   cb_repetition_penalty=1.2, cb_top_p=1.0, cb_language="English",
                                    progress=gr.Progress()):
             """Generate audio using voice cloning - supports Qwen, VibeVoice, and LuxTTS engines."""
             if not sample_name:
@@ -287,6 +311,12 @@ class VoiceCloneTool(Tool):
                     model_size = "Large (4-bit)"
                 else:  # Large
                     model_size = "Large"
+            elif "Chatterbox" in model_selection:
+                engine = "chatterbox"
+                if "Multilingual" in model_selection:
+                    model_size = "Multilingual"
+                else:
+                    model_size = "Default"
             else:  # Qwen3
                 engine = "qwen"
                 if "Small" in model_selection:
@@ -406,6 +436,40 @@ class VoiceCloneTool(Tool):
 
                     engine_display = "LuxTTS"
                     cache_status = "cached" if was_cached else "newly processed"
+
+                elif engine == "chatterbox":
+                    if model_size == "Multilingual":
+                        progress(0.1, desc="Loading Chatterbox Multilingual model...")
+                        from modules.core_components.constants import CHATTERBOX_LANG_TO_CODE
+                        lang_code = CHATTERBOX_LANG_TO_CODE.get(cb_language, "en")
+                        audio_data, sr = tts_manager.generate_voice_clone_chatterbox_multilingual(
+                            text=text_to_generate,
+                            language_code=lang_code,
+                            voice_sample_path=sample["wav_path"],
+                            seed=seed,
+                            exaggeration=float(cb_exaggeration),
+                            cfg_weight=float(cb_cfg_weight),
+                            temperature=float(cb_temperature),
+                            repetition_penalty=float(cb_repetition_penalty),
+                            top_p=float(cb_top_p),
+                        )
+                        engine_display = "Chatterbox Multilingual"
+                    else:
+                        progress(0.1, desc="Loading Chatterbox TTS model...")
+                        audio_data, sr = tts_manager.generate_voice_clone_chatterbox(
+                            text=text_to_generate,
+                            voice_sample_path=sample["wav_path"],
+                            seed=seed,
+                            exaggeration=float(cb_exaggeration),
+                            cfg_weight=float(cb_cfg_weight),
+                            temperature=float(cb_temperature),
+                            repetition_penalty=float(cb_repetition_penalty),
+                            top_p=float(cb_top_p),
+                        )
+                        engine_display = "Chatterbox"
+
+                    wavs = [audio_data]
+                    cache_status = "no caching (Chatterbox)"
 
                 progress(0.8, desc="Saving audio...")
                 # Generate unique filename
@@ -560,7 +624,9 @@ class VoiceCloneTool(Tool):
                     components['vv_do_sample'], components['vv_temperature'], components['vv_top_k'], components['vv_top_p'], components['vv_repetition_penalty'],
                     components['vv_cfg_scale'], components['vv_num_steps'], components['vv_sentences_per_chunk'],
                     components['luxtts_num_steps'], components['luxtts_t_shift'], components['luxtts_speed'], components['luxtts_return_smooth'],
-                    components['luxtts_rms'], components['luxtts_ref_duration'], components['luxtts_guidance_scale']],
+                    components['luxtts_rms'], components['luxtts_ref_duration'], components['luxtts_guidance_scale'],
+                    components['cb_exaggeration'], components['cb_cfg_weight'], components['cb_temperature'],
+                    components['cb_repetition_penalty'], components['cb_top_p'], components['cb_language_dropdown']],
 
             outputs=[components['output_audio'], components['clone_status']]
         )
@@ -568,25 +634,27 @@ class VoiceCloneTool(Tool):
         # Toggle language visibility based on model selection
         def toggle_language_visibility(model_selection):
             is_qwen = "Qwen" in model_selection
-            return gr.update(visible=is_qwen)
+            is_cb_mtl = model_selection == "Chatterbox - Multilingual"
+            return gr.update(visible=is_qwen), gr.update(visible=is_cb_mtl)
 
         components['clone_model_dropdown'].change(
             toggle_language_visibility,
             inputs=[components['clone_model_dropdown']],
-            outputs=[components['language_row']]
+            outputs=[components['language_row'], components['cb_language_row']]
         )
 
-        # Toggle accordion visibility based on engine (Qwen / VibeVoice / LuxTTS)
+        # Toggle accordion visibility based on engine
         def toggle_engine_params(model_selection):
             is_qwen = "Qwen" in model_selection
             is_vv = "VibeVoice" in model_selection
             is_lux = "LuxTTS" in model_selection
-            return gr.update(visible=is_qwen), gr.update(visible=is_vv), gr.update(visible=is_lux)
+            is_cb = "Chatterbox" in model_selection
+            return gr.update(visible=is_qwen), gr.update(visible=is_vv), gr.update(visible=is_lux), gr.update(visible=is_cb)
 
         components['clone_model_dropdown'].change(
             toggle_engine_params,
             inputs=[components['clone_model_dropdown']],
-            outputs=[components['qwen_params_accordion'], components['vv_params_accordion'], components['luxtts_params_accordion']]
+            outputs=[components['qwen_params_accordion'], components['vv_params_accordion'], components['luxtts_params_accordion'], components['cb_params_accordion']]
         )
 
         # Save voice clone model selection

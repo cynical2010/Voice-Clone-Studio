@@ -56,6 +56,11 @@ class TTSManager:
         self._vibevoice_tts_size = None
         self._luxtts_model = None
 
+        # Chatterbox models
+        self._chatterbox_tts_model = None
+        self._chatterbox_vc_model = None
+        self._chatterbox_mtl_model = None
+
         # Prompt cache
         self._voice_prompt_cache = {}
         self._luxtts_prompt_cache = {}
@@ -317,6 +322,21 @@ class TTSManager:
             del self._luxtts_model
             self._luxtts_model = None
             freed.append("LuxTTS")
+
+        if self._chatterbox_tts_model is not None:
+            del self._chatterbox_tts_model
+            self._chatterbox_tts_model = None
+            freed.append("Chatterbox TTS")
+
+        if self._chatterbox_vc_model is not None:
+            del self._chatterbox_vc_model
+            self._chatterbox_vc_model = None
+            freed.append("Chatterbox VC")
+
+        if self._chatterbox_mtl_model is not None:
+            del self._chatterbox_mtl_model
+            self._chatterbox_mtl_model = None
+            freed.append("Chatterbox Multilingual")
 
         if freed:
             gc.collect()
@@ -1232,6 +1252,184 @@ class TTSManager:
             audio_data = np.array(wav_tensor).squeeze()
 
         return audio_data, 48000, was_cached
+
+    # ============================================================
+    # CHATTERBOX METHODS
+    # ============================================================
+
+    def get_chatterbox_tts(self):
+        """Load Chatterbox TTS model (English)."""
+        self._check_and_unload_if_different("chatterbox_tts")
+
+        if self._chatterbox_tts_model is None:
+            print("Loading Chatterbox TTS model...")
+            try:
+                from modules.chatterbox import ChatterboxTTS
+
+                device = get_device()
+                self._chatterbox_tts_model = ChatterboxTTS.from_pretrained(device)
+                print("Chatterbox TTS loaded!")
+
+            except ImportError as e:
+                raise ImportError(f"Chatterbox not available: {e}")
+            except Exception as e:
+                print(f"Error loading Chatterbox TTS: {e}")
+                raise
+
+        return self._chatterbox_tts_model
+
+    def get_chatterbox_multilingual(self):
+        """Load Chatterbox Multilingual TTS model (23 languages)."""
+        self._check_and_unload_if_different("chatterbox_mtl")
+
+        if self._chatterbox_mtl_model is None:
+            print("Loading Chatterbox Multilingual TTS model...")
+            try:
+                from modules.chatterbox import ChatterboxMultilingualTTS
+
+                device = get_device()
+                self._chatterbox_mtl_model = ChatterboxMultilingualTTS.from_pretrained(device)
+                print("Chatterbox Multilingual TTS loaded!")
+
+            except ImportError as e:
+                raise ImportError(f"Chatterbox Multilingual not available: {e}")
+            except Exception as e:
+                print(f"Error loading Chatterbox Multilingual TTS: {e}")
+                raise
+
+        return self._chatterbox_mtl_model
+
+    def get_chatterbox_vc(self):
+        """Load Chatterbox Voice Conversion model."""
+        self._check_and_unload_if_different("chatterbox_vc")
+
+        if self._chatterbox_vc_model is None:
+            print("Loading Chatterbox Voice Conversion model...")
+            try:
+                from modules.chatterbox import ChatterboxVC
+
+                device = get_device()
+                self._chatterbox_vc_model = ChatterboxVC.from_pretrained(device)
+                print("Chatterbox VC loaded!")
+
+            except ImportError as e:
+                raise ImportError(f"Chatterbox VC not available: {e}")
+            except Exception as e:
+                print(f"Error loading Chatterbox VC: {e}")
+                raise
+
+        return self._chatterbox_vc_model
+
+    def generate_voice_clone_chatterbox(self, text, voice_sample_path, seed=-1,
+                                        exaggeration=0.5, cfg_weight=0.5,
+                                        temperature=0.8, repetition_penalty=1.2,
+                                        top_p=1.0):
+        """Generate audio using Chatterbox TTS (English voice cloning).
+
+        Args:
+            text: Text to speak
+            voice_sample_path: Path to reference voice WAV
+            seed: Random seed (-1 for random)
+            exaggeration: Emotion intensity (0-2)
+            cfg_weight: Classifier-free guidance weight
+            temperature: Sampling temperature
+            repetition_penalty: Repetition penalty
+            top_p: Top-p sampling
+
+        Returns:
+            Tuple: (audio_array, sample_rate)
+        """
+        import random
+        import numpy as np
+
+        if seed < 0:
+            seed = random.randint(0, 2147483647)
+        set_seed(seed)
+
+        model = self.get_chatterbox_tts()
+
+        wav_tensor = model.generate(
+            text=text.strip(),
+            audio_prompt_path=str(voice_sample_path),
+            exaggeration=float(exaggeration),
+            cfg_weight=float(cfg_weight),
+            temperature=float(temperature),
+            repetition_penalty=float(repetition_penalty),
+            top_p=float(top_p),
+        )
+
+        # Output is [1, N] float tensor at 24kHz
+        audio_data = wav_tensor.squeeze(0).detach().cpu().numpy()
+
+        return audio_data, 24000
+
+    def generate_voice_clone_chatterbox_multilingual(self, text, language_code,
+                                                     voice_sample_path, seed=-1,
+                                                     exaggeration=0.5, cfg_weight=0.5,
+                                                     temperature=0.8, repetition_penalty=2.0,
+                                                     top_p=1.0):
+        """Generate audio using Chatterbox Multilingual TTS (23 languages).
+
+        Args:
+            text: Text to speak
+            language_code: 2-letter ISO language code (e.g. "en", "fr")
+            voice_sample_path: Path to reference voice WAV
+            seed: Random seed (-1 for random)
+            exaggeration: Emotion intensity (0-2)
+            cfg_weight: Classifier-free guidance weight
+            temperature: Sampling temperature
+            repetition_penalty: Repetition penalty (default 2.0 for multilingual)
+            top_p: Top-p sampling
+
+        Returns:
+            Tuple: (audio_array, sample_rate)
+        """
+        import random
+        import numpy as np
+
+        if seed < 0:
+            seed = random.randint(0, 2147483647)
+        set_seed(seed)
+
+        model = self.get_chatterbox_multilingual()
+
+        wav_tensor = model.generate(
+            text=text.strip(),
+            language_id=language_code,
+            audio_prompt_path=str(voice_sample_path),
+            exaggeration=float(exaggeration),
+            cfg_weight=float(cfg_weight),
+            temperature=float(temperature),
+            repetition_penalty=float(repetition_penalty),
+            top_p=float(top_p),
+        )
+
+        # Output is [1, N] float tensor at 24kHz
+        audio_data = wav_tensor.squeeze(0).detach().cpu().numpy()
+
+        return audio_data, 24000
+
+    def generate_voice_convert_chatterbox(self, source_audio_path, target_voice_path):
+        """Convert voice in source audio to match target voice.
+
+        Args:
+            source_audio_path: Path to source audio WAV to convert
+            target_voice_path: Path to target voice reference WAV
+
+        Returns:
+            Tuple: (audio_array, sample_rate)
+        """
+        model = self.get_chatterbox_vc()
+
+        wav_tensor = model.generate(
+            audio=str(source_audio_path),
+            target_voice_path=str(target_voice_path),
+        )
+
+        # Output is [1, N] float tensor at 24kHz
+        audio_data = wav_tensor.squeeze(0).detach().cpu().numpy()
+
+        return audio_data, 24000
 
 
 # Global singleton instance

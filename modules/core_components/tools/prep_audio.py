@@ -500,6 +500,10 @@ class PrepSamplesTool(Tool):
                             cache_path = get_prompt_cache_path(sample_name, model_size)
                             if cache_path.exists():
                                 os.remove(cache_path)
+                        # Also delete LuxTTS cache
+                        luxtts_cache = SAMPLES_DIR / f"{sample_name}_luxtts.pt"
+                        if luxtts_cache.exists():
+                            os.remove(luxtts_cache)
                         deleted_count += 1
                     except Exception as e:
                         errors.append(f"{sample_name}: {str(e)}")
@@ -526,6 +530,11 @@ class PrepSamplesTool(Tool):
                     if cache_path.exists():
                         os.remove(cache_path)
                         deleted.append(model_size)
+                # Also clear LuxTTS cache
+                luxtts_cache = SAMPLES_DIR / f"{sample_name}_luxtts.pt"
+                if luxtts_cache.exists():
+                    os.remove(luxtts_cache)
+                    deleted.append("LuxTTS")
                 if deleted:
                     _, _, new_info = load_sample_details(sample_name)
                     return f"Cache cleared for: {', '.join(deleted)}", new_info
